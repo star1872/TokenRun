@@ -29,7 +29,7 @@ import quantscope as QS  # noqa: E402
 
 WIN = os.name == "nt"
 # the llama.cpp build these models run on: pinned, so a setup made today starts the same engine next month
-LLAMA_BUILD = "b11457"
+LLAMA_BUILD = "b11609"                                  # the first with --moe-cache-mib (#29887)
 LLAMA_GH = "https://github.com/ggml-org/llama.cpp/releases/download/{build}/{asset}"
 SERVER_EXE = "llama-server.exe" if WIN else "llama-server"
 CUDA13_DRIVER = 580                                     # CUDA 13 needs an NVIDIA driver 580 or newer
@@ -49,6 +49,10 @@ SUGGESTED = [
 ]
 RAM_LEFT_GB = 6                                         # the OS and the server beside the model's weights in RAM
 VRAM_LEFT_GB = 1.5                                      # the KV cache and compute buffers beside its weights in VRAM
+# --moe-cache-mib for a MoE model bigger than the VRAM: this share of the VRAM caches the experts --fit leaves in RAM.
+# llmserver (RTX 4060 Ti 16 GB, PCIe 3.0 x8, DDR3), Qwen3.6-35B-A3B UD-Q4_K_XL (22.4 GB), b11609, 4 prompts, 2 rounds:
+# --fit on 33.6 tok/s; with a cache of 2048 MiB 42.3, 4096 46.7, 8192 49.5 (half the VRAM); -cmoe with 11000 48.9.
+MOE_CACHE_VRAM_SHARE = 0.5
 
 
 # ------------------------------------------------------------------------------------------------ the engine
@@ -155,6 +159,69 @@ def get_engine(gpus: list[dict], build: str = LLAMA_BUILD) -> Path:
     return exe
 
 
+def expert_gb(files: list) -> float:
+    """The routed experts' bytes in a GGUF (its *_exps tensors, from the headers only), in GB; 0 for a dense model."""
+    total = 0
+    for f in files:
+        f = Path(f)
+        try:
+            _, tensors = QS.read_gguf(QS.Source(f.name, f.stat().st_size, path=str(f)))
+        except (OSError, ValueError):
+            continue
+        total += sum(t.get("bytes", 0) for t in tensors if "_exps" in t["name"])
+    return total / 1e9
+
+
+def moe_cache_mib(kind: str, model_gb: float, experts_gb: float, vram_gb: float) -> int:
+    """--moe-cache-mib for this model on this PC: half the VRAM (at most the experts' size), for a MoE model that does
+    not fit in VRAM, on the CUDA builds (the cache needs a GPU backend; measured on CUDA only).  0: no cache."""
+    if kind not in ("cuda13", "cuda12") or experts_gb <= 0 or model_gb <= vram_gb - VRAM_LEFT_GB:
+        return 0
+    mib = int(min(vram_gb * MOE_CACHE_VRAM_SHARE, experts_gb) * 1024) // 256 * 256
+    return mib if mib >= 1024 else 0
+
+
+def run_args(context: int, kind: str, model_gb: float, experts_gb: float, vram_gb: float) -> list[str]:
+    args = ["-c", str(context), "--fit", "on"]
+    mib = moe_cache_mib(kind, model_gb, experts_gb, vram_gb)
+    return args + ["--moe-cache-mib", str(mib)] if mib else args
+
+
+def gpus_here() -> list[dict]:
+    try:
+        return [{**g, "vendor": "nvidia"} for g in S.gpus()]
+    except Exception:
+        return []
+
+
+def refresh_config(path: Path) -> dict:
+    """A config written for an older llama.cpp build: the pinned build's engine (downloaded once) and the expert cache
+    it can use, so a model installed before an update gets them without installing it again.  The context and any
+    flags added by hand stay; when anything fails the config is left as it was."""
+    cfg = json.loads(path.read_text(encoding="utf-8-sig"))
+    if cfg.get("llama_build") == LLAMA_BUILD:
+        return cfg
+    try:
+        gpus = gpus_here()
+        exe = get_engine(gpus)
+        vram = max((g["vram_gb"] for g in gpus), default=0.0)
+        model = Path(cfg["model"])
+        m = re.match(r"(.*)-\d{5}-of-(\d{5})\.gguf$", model.name)   # every shard of a split model
+        files = sorted(model.parent.glob(f"{m.group(1)}-*-of-{m.group(2)}.gguf")) if m else [model]
+        args = [a for a in cfg.get("args", [])]
+        if "--moe-cache-mib" not in args:
+            mib = moe_cache_mib(engine_kind(gpus), float(cfg.get("gb") or 0), expert_gb(files), vram)
+            if mib:
+                args += ["--moe-cache-mib", str(mib)]
+        cfg.update(exe=str(exe), args=args, llama_build=LLAMA_BUILD)
+        path.write_text(json.dumps(cfg, indent=1), encoding="utf-8")
+        S.ok(f"{path.name}: llama.cpp {LLAMA_BUILD}" + (f", expert cache {args[args.index('--moe-cache-mib') + 1]} MiB"
+                                                        if "--moe-cache-mib" in args else ""))
+    except (Exception, SystemExit) as e:                   # S.fail exits; keep the old engine then
+        S.warn(f"{path.name}: staying on llama.cpp {cfg.get('llama_build')} ({e})")
+    return cfg
+
+
 # ------------------------------------------------------------------------------------------------ the model
 def hub_files(repo: str, source: str) -> list:
     """The repository's files (quantscope.Source: name, size, url)."""
@@ -254,11 +321,7 @@ def install(repo: str, variant_name: str, source: str = "auto", context: int | N
     if source == "auto":
         source = S.model_source()
     S.step(1, "this PC")
-    gpus = []
-    try:
-        gpus = [{**g, "vendor": "nvidia"} for g in S.gpus()]
-    except Exception:
-        pass
+    gpus = gpus_here()
     vram = max((g["vram_gb"] for g in gpus), default=0.0)
     ram = S.ram_gb()
     S.ok(f"{'GPU: ' + gpus[0]['name'] + f', {vram:.0f} GB VRAM' if gpus else 'no NVIDIA GPU'}; RAM {ram:.0f} GB")
@@ -293,7 +356,9 @@ def install(repo: str, variant_name: str, source: str = "auto", context: int | N
     files = download_model(repo, v, source, dest)
     S.step(5, "the run config and start script")
     port = 8080
-    args = ["-c", str(context or 32768), "--fit", "on"]
+    args = run_args(context or 32768, engine_kind(gpus), v["gb"], expert_gb(files), vram)
+    if "--moe-cache-mib" in args:
+        S.ok(f"expert cache in VRAM: {args[args.index('--moe-cache-mib') + 1]} MiB (the model does not fit in VRAM)")
     log = ROOT / f"llama-{key}.log"
     cfg = {"backend": "llamacpp", "exe": str(exe), "model": str(files[0]), "args": args,
            "model_name": key, "port": port, "log": str(log), "repo": repo, "variant": v["name"], "source": source,

@@ -27,6 +27,7 @@ import hmac
 import http.client
 import json
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -538,7 +539,11 @@ def main(argv=None) -> int:
     cfg = json.loads(cfg_path.read_text(encoding="utf-8-sig"))
     if cfg.get("backend") != "llamacpp":
         ap.error(f"{cfg_path.name} is not a llama.cpp run config (\"backend\": \"llamacpp\")")
-    host = a.host or cfg.get("host") or "127.0.0.1"
+    if cfg.get("llama_build"):                       # written by setup for an older pinned build: move it up once
+        from serve import llama_models
+        if cfg["llama_build"] != llama_models.LLAMA_BUILD:
+            cfg = llama_models.refresh_config(cfg_path)
+    host =a.host or cfg.get("host") or "127.0.0.1"
     port = a.port or int(cfg.get("port") or 8080)
     try:
         Server((host, port), BaseHTTPRequestHandler).server_close()
@@ -578,6 +583,14 @@ def main(argv=None) -> int:
     print(f"       open {url}/ in a browser to chat; close this window to stop the model", flush=True)
     if a.open:
         threading.Timer(0.5, lambda: webbrowser.open(url + "/")).start()
+    # as serve/server.py (#96): SIGTERM (kill, systemd, docker stop) takes Ctrl+C's path, so llama-server is stopped
+    # too - Python's default ends this process alone and left llama-server running with its VRAM (seen on llmserver)
+    def on_sigterm(signum, frame):
+        raise KeyboardInterrupt
+    try:
+        signal.signal(signal.SIGTERM, on_sigterm)
+    except (ValueError, OSError, AttributeError):
+        pass
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

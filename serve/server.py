@@ -1557,6 +1557,24 @@ def hip_visible(cfg: dict) -> list[int]:
     return gpu_list(cfg)
 
 
+def engine_env(cfg: dict) -> dict:
+    """TokenRun's settings for the official Strata engine (setup.py's ENGINE_VERSION), none of which changes which
+    experts a token uses.  llmserver (RTX 4060 Ti 16 GB, Xeon E5-2673 v3, DDR3, PCIe 3.0 x8), IQ3_S, 3 interleaved
+    rounds, 4 prompts: 0.1.39 + the fork 40.41 tok/s, 0.1.44.1 with these 43.02; the log-probabilities of a 3,166-token
+    text differ from 0.1.39's as much as a different --expert-cache size makes them differ.
+      STRATA_ROUTE_TAIL_SKIP=0   off: on by default on CUDA since 0.1.42, it skips a missed expert ranked 7th or lower,
+                                 i.e. computes fewer experts than the model routes (it changes answers)
+      STRATA_PREFILL_CPU_SHARE=0 off: the CPU's share of a short prompt rounds differently from the GPU (0.1.41)
+      STRATA_Q2_BITPLANE=1       the Q2_0 AVX2 kernel (#706, the same results; +4.3% on llmserver)
+      STRATA_ADAPT_OVERLAP=1     Linux CUDA: the adaptive tier's copies overlap the next window (the same tokens; +6.5%
+                                 above).  Upstream: -2.6% on Windows (RTX 5070), so Windows keeps
+      STRATA_ADAPT_LAG=2         the next-but-one window waits for the copies (#764; TokenRun's 0.1.39 default)"""
+    env = {"STRATA_ROUTE_TAIL_SKIP": "0", "STRATA_PREFILL_CPU_SHARE": "0", "STRATA_Q2_BITPLANE": "1"}
+    if cfg.get("backend") != "hip":
+        env.update({"STRATA_ADAPT_LAG": "2"} if os.name == "nt" else {"STRATA_ADAPT_OVERLAP": "1"})
+    return env
+
+
 def child_env(cfg: dict) -> dict:
     """The engine's environment: the CUDA libraries setup installed (pip's nvidia packages, or the toolkit that
     compiled it) first on the library search path."""
@@ -1566,6 +1584,8 @@ def child_env(cfg: dict) -> dict:
     elif gpu_list(cfg):                              # issue #51: the GPU(s) to run on, numbered as nvidia-smi does; CUDA's
         env["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"      # own default order (fastest first) can number the cards otherwise
         env["CUDA_VISIBLE_DEVICES"] = ",".join(str(i) for i in gpu_list(cfg))
+    for k, v in engine_env(cfg).items():             # TokenRun's engine settings; a value set outside or in the config wins
+        env.setdefault(k, v)
     for k, v in (cfg.get("env") or {}).items():      # engine settings the config carries (AMD: the GEMM tuning table)
         env[str(k)] = str(v)
     dirs = [d for d in cfg.get("lib_dirs") or [] if Path(d).is_dir()]

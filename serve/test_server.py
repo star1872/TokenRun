@@ -807,6 +807,23 @@ class GpuChoice(unittest.TestCase):
         self.assertEqual(plain.get("CUDA_VISIBLE_DEVICES"), os.environ.get("CUDA_VISIBLE_DEVICES"))
         self.assertEqual(plain.get("CUDA_DEVICE_ORDER"), os.environ.get("CUDA_DEVICE_ORDER"))
 
+    def test_tokenrun_engine_settings(self):
+        """TokenRun's settings for the official engine: the tail skip (fewer experts than routed) is off; a value in
+        the config or in the environment wins."""
+        from serve.server import child_env
+        with mock.patch.dict(os.environ, {}, clear=False):
+            for k in ("STRATA_ROUTE_TAIL_SKIP", "STRATA_ADAPT_OVERLAP", "STRATA_ADAPT_LAG", "STRATA_PREFILL_CPU_SHARE"):
+                os.environ.pop(k, None)
+            env = child_env({})
+            self.assertEqual((env["STRATA_ROUTE_TAIL_SKIP"], env["STRATA_PREFILL_CPU_SHARE"], env["STRATA_Q2_BITPLANE"]),
+                             ("0", "0", "1"))
+            self.assertEqual(env.get("STRATA_ADAPT_OVERLAP"), None if os.name == "nt" else "1")
+            self.assertEqual(env.get("STRATA_ADAPT_LAG"), "2" if os.name == "nt" else None)
+            self.assertNotIn("STRATA_ADAPT_OVERLAP", child_env({"backend": "hip"}))
+            self.assertEqual(child_env({"env": {"STRATA_ROUTE_TAIL_SKIP": 7}})["STRATA_ROUTE_TAIL_SKIP"], "7")
+            os.environ["STRATA_ROUTE_TAIL_SKIP"] = "5"
+            self.assertEqual(child_env({})["STRATA_ROUTE_TAIL_SKIP"], "5")
+
     def test_vision_device(self):
         # #408: the image encoder on its own card; the engine's environment stays as it was
         from serve.server import child_env, vision_env

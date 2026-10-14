@@ -113,6 +113,71 @@ class Fit(unittest.TestCase):
         self.assertEqual(LM.fit(10, 12, 0)["where"], "ssd")
 
 
+def tiny_gguf(path: Path, tensors: list[tuple[str, int]]) -> None:
+    """A GGUF with only a tensor table: (name, bytes) laid out one after another (no metadata, no real weights)."""
+    import struct
+    head = b"GGUF" + struct.pack("<IQQ", 3, len(tensors), 0)
+    offset = 0
+    for name, size in tensors:
+        n = name.encode()
+        head += struct.pack("<Q", len(n)) + n + struct.pack("<IQIQ", 1, size, 0, offset)
+        offset += size
+    head += b"\0" * (-len(head) % 32)
+    path.write_bytes(head + b"\0" * offset)
+
+
+class MoeCache(unittest.TestCase):
+    def test_only_for_a_moe_model_bigger_than_the_vram(self):
+        self.assertEqual(LM.moe_cache_mib("cuda13", 22.4, 21.0, 16), 8192)       # llmserver: half of 16 GB
+        self.assertEqual(LM.moe_cache_mib("cuda12", 22.4, 21.0, 8), 4096)
+        self.assertEqual(LM.moe_cache_mib("cuda13", 22.4, 3.0, 16), 3072)        # at most the experts' size
+        self.assertEqual(LM.moe_cache_mib("cuda13", 10, 9, 16), 0)               # fits in VRAM
+        self.assertEqual(LM.moe_cache_mib("cuda13", 30, 0, 16), 0)               # dense
+        self.assertEqual(LM.moe_cache_mib("vulkan", 22.4, 21, 16), 0)            # measured on CUDA only
+        self.assertEqual(LM.moe_cache_mib("cuda13", 22.4, 21, 0), 0)             # no GPU
+        self.assertEqual(LM.run_args(32768, "cuda13", 22.4, 21, 16),
+                         ["-c", "32768", "--fit", "on", "--moe-cache-mib", "8192"])
+        self.assertEqual(LM.run_args(8192, "cuda13", 10, 9, 16), ["-c", "8192", "--fit", "on"])
+
+    def test_expert_bytes_from_the_headers(self):
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "m.gguf"
+            tiny_gguf(f, [("token_embd.weight", 4096), ("blk.0.ffn_gate_exps.weight", 8192),
+                          ("blk.0.ffn_down_exps.weight", 8192), ("blk.0.attn_q.weight", 1024)])
+            self.assertEqual(LM.expert_gb([f]), 16384 / 1e9)
+            self.assertEqual(LM.expert_gb([Path(d) / "missing.gguf"]), 0)
+
+    def test_an_older_config_moves_up_once(self):
+        with tempfile.TemporaryDirectory() as d:
+            m = Path(d) / "M-Q4-00001-of-00002.gguf"
+            tiny_gguf(m, [("blk.0.ffn_up_exps.weight", 1 << 20)])
+            tiny_gguf(Path(d) / "M-Q4-00002-of-00002.gguf", [("blk.1.ffn_up_exps.weight", 1 << 20)])
+            p = Path(d) / "llama-m.json"
+            p.write_text(json.dumps({"backend": "llamacpp", "exe": "old/llama-server", "model": str(m), "gb": 22.4,
+                                     "args": ["-c", "65536", "--fit", "on", "-t", "8"], "llama_build": "b11457"}))
+            gpus = [{"name": "RTX 4060 Ti", "vram_gb": 16, "driver": "580.1", "vendor": "nvidia"}]
+            with mock.patch.object(LM, "gpus_here", lambda: gpus), \
+                    mock.patch.object(LM, "get_engine", lambda g: Path("new/llama-server")), \
+                    mock.patch.object(LM, "expert_gb", lambda files: 21.0 if len(files) == 2 else 0):
+                cfg = LM.refresh_config(p)
+                self.assertEqual(cfg["args"], ["-c", "65536", "--fit", "on", "-t", "8", "--moe-cache-mib", "8192"])
+                self.assertEqual((cfg["llama_build"], Path(cfg["exe"])), (LM.LLAMA_BUILD, Path("new/llama-server")))
+                self.assertEqual(json.loads(p.read_text()), cfg)
+                self.assertEqual(LM.refresh_config(p), cfg)                     # nothing more to do
+
+    def test_a_failed_engine_download_keeps_the_config(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "llama-m.json"
+            old = {"backend": "llamacpp", "exe": "old/llama-server", "model": str(Path(d) / "m.gguf"),
+                   "args": ["-c", "32768", "--fit", "on"], "llama_build": "b11457"}
+            p.write_text(json.dumps(old))
+            def offline(g):
+                raise SystemExit(1)
+            with mock.patch.object(LM, "gpus_here", lambda: []), mock.patch.object(LM, "get_engine", offline):
+                self.assertEqual(LM.refresh_config(p), old)
+            self.assertEqual(json.loads(p.read_text()), old)
+
+
 class Names(unittest.TestCase):
     def test_key(self):
         self.assertEqual(LM.model_key("unsloth/Qwen3.6-35B-A3B-GGUF", "Qwen3.6-35B-A3B-UD-Q4_K_XL"),

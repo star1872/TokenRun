@@ -1,21 +1,22 @@
-# The ready-made engine of this fork (branch oldhw): the same build as the official release (STRATA_PORTABLE, CUDA 13.0,
-# RTX 20/30/40/50) from this fork's sources, for Windows and Linux.  setup.py downloads it from the release
-# oldhw-v<version> (PREBUILT_TAG_URL; a copy on ModelScope, MS_ENGINE_REPO), so the fork's engine changes reach PCs without a compiler.
-# Building needs no GPU; the engine is not run here.
-name: engine (oldhw)
+# TokenRun's ready-made Strata engine: the official source of Niko1221/Strata at setup.py's ENGINE_VERSION (tag
+# v<ENGINE_VERSION>), built like the official release (STRATA_PORTABLE, CUDA 13.0, RTX 20/30/40/50) for Windows and
+# Linux - the official release has no Linux engine.  setup.py downloads it from the release engine-v<version>
+# (PREBUILT_TAG_URL; a copy on ModelScope, MS_ENGINE_REPO).  Building needs no GPU; the engine is not run here.
+# Run it by hand after changing ENGINE_VERSION (gh workflow run oldhw-engine.yml).
+name: engine (official Strata for TokenRun)
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ["src/**", "include/**", "CMakeLists.txt", "third_party/ggml/**", "tools/vision/**",
-            ".github/workflows/oldhw-engine.yml", "tools/ci_package.py"]
+    paths: [".github/workflows/oldhw-engine.yml"]
 
 permissions:
   contents: write
 
 env:
   CUDA_ARCHS: "75-real;86-real;89-real;120"        # sm_120 also as PTX: newer cards run it too ("ptx": true)
+  ENGINE_SRC: strata-src                            # where the official source is checked out (tools/ci_package.py)
 
 jobs:
   windows:
@@ -23,6 +24,11 @@ jobs:
     timeout-minutes: 345
     steps:
       - uses: actions/checkout@v4
+      - name: the official tag (setup.py's ENGINE_VERSION)
+        shell: bash
+        run: echo "STRATA_REF=v$(python tools/ci_package.py engine-version)" >> $GITHUB_ENV
+      - uses: actions/checkout@v4
+        with: {repository: Niko1221/Strata, ref: "${{ env.STRATA_REF }}", path: strata-src}
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
       - name: cmake, ninja
@@ -39,13 +45,13 @@ jobs:
       - name: engine
         shell: cmd
         run: |
-          cmake -G Ninja -S . -B build -DCMAKE_BUILD_TYPE=Release -DSTRATA_PORTABLE=ON -DSTRATA_ENABLE_CUDA=ON ^
+          cmake -G Ninja -S strata-src -B build -DCMAKE_BUILD_TYPE=Release -DSTRATA_PORTABLE=ON -DSTRATA_ENABLE_CUDA=ON ^
             -DSTRATA_BUILD_TESTS=OFF "-DCMAKE_CUDA_ARCHITECTURES=%CUDA_ARCHS%" -DSTRATA_GGML_DIR=%CD%\third_party\llama.cpp || exit /b 1
           cmake --build build --target strata -j 4 || cmake --build build --target strata -j 4
       - name: image encoder
         shell: cmd
         run: |
-          cmake -G Ninja -S tools/vision -B build-vision -DCMAKE_BUILD_TYPE=Release -DSTRATA_PORTABLE=ON ^
+          cmake -G Ninja -S strata-src/tools/vision -B build-vision -DCMAKE_BUILD_TYPE=Release -DSTRATA_PORTABLE=ON ^
             -DLLAMA_DIR=%CD%\third_party\llama.cpp -DSTRATA_VISION_CUDA=ON "-DCMAKE_CUDA_ARCHITECTURES=%CUDA_ARCHS%" || exit /b 1
           cmake --build build-vision --target strata-vision -j 4 || cmake --build build-vision --target strata-vision -j 4
       - name: package
@@ -63,16 +69,20 @@ jobs:
           apt-get update && apt-get install -y --no-install-recommends python3 python3-pip git curl ca-certificates build-essential
           python3 -m pip install cmake ninja
       - uses: actions/checkout@v4
+      - name: the official tag (setup.py's ENGINE_VERSION)
+        run: echo "STRATA_REF=v$(python3 tools/ci_package.py engine-version)" >> $GITHUB_ENV
+      - uses: actions/checkout@v4
+        with: {repository: Niko1221/Strata, ref: "${{ env.STRATA_REF }}", path: strata-src}
       - name: llama.cpp at setup.py's pinned commit
         run: python3 tools/ci_package.py llama
       - name: engine
         run: |
-          cmake -G Ninja -S . -B build -DCMAKE_BUILD_TYPE=Release -DSTRATA_PORTABLE=ON -DSTRATA_ENABLE_CUDA=ON \
+          cmake -G Ninja -S strata-src -B build -DCMAKE_BUILD_TYPE=Release -DSTRATA_PORTABLE=ON -DSTRATA_ENABLE_CUDA=ON \
             -DSTRATA_BUILD_TESTS=OFF "-DCMAKE_CUDA_ARCHITECTURES=$CUDA_ARCHS" -DSTRATA_GGML_DIR=$PWD/third_party/llama.cpp
           cmake --build build --target strata -j 4 || cmake --build build --target strata -j 4
       - name: image encoder
         run: |
-          cmake -G Ninja -S tools/vision -B build-vision -DCMAKE_BUILD_TYPE=Release -DSTRATA_PORTABLE=ON \
+          cmake -G Ninja -S strata-src/tools/vision -B build-vision -DCMAKE_BUILD_TYPE=Release -DSTRATA_PORTABLE=ON \
             -DLLAMA_DIR=$PWD/third_party/llama.cpp -DSTRATA_VISION_CUDA=ON "-DCMAKE_CUDA_ARCHITECTURES=$CUDA_ARCHS"
           cmake --build build-vision --target strata-vision -j 4 || cmake --build build-vision --target strata-vision -j 4
       - name: package
@@ -88,14 +98,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with: {path: dist, merge-multiple: true}
-      - name: release oldhw-v<version>
+      - name: release engine-v<version>
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          V=$(python3 -c "import re;print(re.search(r'project\(strata VERSION ([\d.]+)',open('CMakeLists.txt').read()).group(1))")
-          TAG="oldhw-v$V"
-          NOTES="Ready-made engine of TokenRun (${GITHUB_SHA::7}): the official build settings (STRATA_PORTABLE, CUDA 13.0, RTX 20/30/40/50) with this fork's engine changes. Built by GitHub Actions without a GPU. Linux: measured on an RTX 4060 Ti 16 GB / Xeon E5-2673 v3. Windows: NOT yet tested on a Windows PC with a GPU."
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG (engine, oldhw)" --notes "$NOTES" --latest=false
+          V=$(python3 tools/ci_package.py engine-version)
+          TAG="engine-v$V"
+          NOTES="Strata engine $V for TokenRun: the official source (Niko1221/Strata, tag v$V) built with the official settings (STRATA_PORTABLE, CUDA 13.0, RTX 20/30/40/50) by GitHub Actions without a GPU (TokenRun ${GITHUB_SHA::7}). TokenRun runs it with STRATA_ROUTE_TAIL_SKIP=0 (serve/server.py engine_env). Linux: measured on an RTX 4060 Ti 16 GB / Xeon E5-2673 v3 (a local build of the same tag). Windows: NOT yet tested on a Windows PC with a GPU."
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG (Strata engine)" --notes "$NOTES" --latest=false
           gh release edit "$TAG" --notes "$NOTES"
           gh release upload "$TAG" dist/*.zip --clobber
       # the same archives on ModelScope for mainland China (setup.py tries it first there); skipped without the token

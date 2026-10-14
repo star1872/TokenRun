@@ -1,5 +1,9 @@
-"""The fork's engine build on GitHub Actions (.github/workflows/oldhw-engine.yml): its two steps outside CMake.
+"""TokenRun's engine build on GitHub Actions (.github/workflows/oldhw-engine.yml): its steps outside CMake.  The
+engine is the official Strata source at setup.py's ENGINE_VERSION (checked out into ENGINE_SRC); without ENGINE_SRC
+this checkout's own source.
 
+    python tools/ci_package.py engine-version
+        setup.py's ENGINE_VERSION: the official Strata tag (v<it>) the engine job checks out and builds.
     python tools/ci_package.py llama
         llama.cpp at setup.py's pinned commit (LLAMA_CPP_COMMIT) into third_party/llama.cpp, as setup.py unpacks it
         (without tools/ui, whose deep paths pass Windows' 260-character limit).
@@ -8,8 +12,8 @@
         version, archs, ptx and cuda setup checks before it uses the engine.
     python tools/ci_package.py modelscope dist/*.zip
         a copy of the release archives on ModelScope (www.modelscope.cn), which mainland China reaches when GitHub's
-        downloads do not: the model repository MODELSCOPE_REPO (setup.py's MS_ENGINE_REPO), each archive at
-        oldhw-v<version>/<name>, with the token MODELSCOPE_TOKEN (a write token from modelscope.cn/my/myaccesstoken).
+        downloads do not: the model repository MODELSCOPE_REPO (default setup.py's MS_ENGINE_REPO), each archive at
+        engine-v<version>/<name>, with the token MODELSCOPE_TOKEN (a write token from modelscope.cn/my/myaccesstoken).
         Without the token it says so and does nothing (forks without it still build).
     python tools/ci_package.py llama-mirror
         the official llama.cpp builds the llama.cpp backend installs (serve/llama_models.py LLAMA_BUILD, every
@@ -43,8 +47,21 @@ def pinned_commit() -> str:
     return m.group(1)
 
 
+def setup_value(name: str) -> str:
+    """A string constant of setup.py (NAME = "..."), read from the file."""
+    m = re.search(rf'^{name} = "([^"]+)"', (ROOT / "setup.py").read_text(encoding="utf-8"), re.M)
+    if not m:
+        raise SystemExit(f"{name} not found in setup.py")
+    return m.group(1)
+
+
+def engine_src() -> Path:
+    return Path(os.environ.get("ENGINE_SRC") or ROOT)
+
+
 def version() -> str:
-    m = re.search(r"project\(strata VERSION ([\d.]+)", (ROOT / "CMakeLists.txt").read_text(encoding="utf-8"))
+    """The version of the engine source that is built (its CMakeLists.txt)."""
+    m = re.search(r"project\(strata VERSION ([\d.]+)", (engine_src() / "CMakeLists.txt").read_text(encoding="utf-8"))
     return m.group(1)
 
 
@@ -81,7 +98,8 @@ def package(exe: Path, vision: Path | None, out: Path) -> None:
             # an architecture without "-real" carries its PTX too: newer cards JIT-compile it (setup's "ptx" check)
             "ptx": any(not a.endswith("-real") for a in archs_spec.split(";") if a),
             "cuda": cuda_version(), "vision": "gpu" if vision else "none", "portable": True,
-            "fork": "oldhw", "commit": os.environ.get("GITHUB_SHA", "")[:12]}
+            "fork": "tokenrun", "strata_ref": os.environ.get("STRATA_REF", ""),
+            "commit": os.environ.get("GITHUB_SHA", "")[:12]}
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         z.write(exe, exe.name)
         if vision:
@@ -93,10 +111,11 @@ def package(exe: Path, vision: Path | None, out: Path) -> None:
 
 MS_README = """# Strata engine (TokenRun, star1872/TokenRun)
 
-A copy of the ready-made engine archives of https://github.com/star1872/TokenRun/releases (release oldhw-v<version>),
+A copy of the ready-made engine archives of https://github.com/star1872/TokenRun/releases (release engine-v<version>),
 for PCs that reach ModelScope but not GitHub's downloads.  setup.py downloads them from here by itself; there is no
-need to download them by hand.  Built by GitHub Actions from the fork's sources (STRATA_PORTABLE, CUDA 13.0,
-RTX 20/30/40/50); each archive's BUILD.json names the commit.
+need to download them by hand.  Built by GitHub Actions from the official Strata source of that version
+(STRATA_PORTABLE, CUDA 13.0, RTX 20/30/40/50); each archive's BUILD.json names the tag.  oldhw-v<version>/: the
+engines of TokenRun before 2026-10-14 (Strata 0.1.39 with the old-PC changes), kept for older installs.
 
 Strata: https://github.com/Niko1221/Strata (MIT)
 
@@ -107,9 +126,9 @@ carries its license) for the fork's llama.cpp backend (serve/llama_models.py), c
 
 def modelscope(files: list[Path]) -> None:
     token = os.environ.get("MODELSCOPE_TOKEN", "").strip()
-    repo = os.environ.get("MODELSCOPE_REPO", "").strip()
-    if not token or not repo:
-        print("MODELSCOPE_TOKEN or MODELSCOPE_REPO is not set: no copy on ModelScope")
+    repo = os.environ.get("MODELSCOPE_REPO", "").strip() or setup_value("MS_ENGINE_REPO")
+    if not token:
+        print("MODELSCOPE_TOKEN is not set: no copy on ModelScope")
         return
     from modelscope_hub.api import HubApi            # pip install modelscope-hub (CI only; setup.py does not need it)
     api = HubApi(token=token)
@@ -119,7 +138,7 @@ def modelscope(files: list[Path]) -> None:
                         description="Ready-made Strata engine (TokenRun, star1872/TokenRun)")
         print(f"created {repo}")
     api.upload_file(repo, "model", MS_README.encode(), "README.md", commit_message="README", disable_tqdm=True)
-    tag = f"oldhw-v{version()}"
+    tag = f"engine-v{setup_value('ENGINE_VERSION')}"
     sha = os.environ.get("GITHUB_SHA", "")[:7]
     for f in files:
         api.upload_file(repo, "model", str(f), f"{tag}/{f.name}", commit_message=f"{tag} {f.name} ({sha})",
@@ -129,9 +148,9 @@ def modelscope(files: list[Path]) -> None:
 
 def ms_api():
     token = os.environ.get("MODELSCOPE_TOKEN", "").strip()
-    repo = os.environ.get("MODELSCOPE_REPO", "").strip()
-    if not token or not repo:
-        print("MODELSCOPE_TOKEN or MODELSCOPE_REPO is not set: no copy on ModelScope")
+    repo = os.environ.get("MODELSCOPE_REPO", "").strip() or setup_value("MS_ENGINE_REPO")
+    if not token:
+        print("MODELSCOPE_TOKEN is not set: no copy on ModelScope")
         return None, None
     from modelscope_hub.api import HubApi
     api = HubApi(token=token)
@@ -239,13 +258,15 @@ def tokenrun(files: list[Path]) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("step", choices=["llama", "zip", "modelscope", "llama-mirror", "tokenrun"])
+    ap.add_argument("step", choices=["engine-version", "llama", "zip", "modelscope", "llama-mirror", "tokenrun"])
     ap.add_argument("files", nargs="*", type=Path)
     ap.add_argument("--exe", type=Path)
     ap.add_argument("--vision", type=Path)
     ap.add_argument("--out", type=Path)
     a = ap.parse_args()
-    if a.step == "llama":
+    if a.step == "engine-version":                    # the official tag the engine job builds (v<this>)
+        print(setup_value("ENGINE_VERSION"))
+    elif a.step == "llama":
         llama()
     elif a.step == "llama-mirror":
         llama_mirror()

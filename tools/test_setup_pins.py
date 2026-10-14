@@ -151,6 +151,7 @@ class Engine(unittest.TestCase):
         (self.root / "engine").mkdir()
         self.patches = [mock.patch.object(setup, "ROOT", self.root),
                         mock.patch.object(setup, "source_version", lambda: "0.1.31"),
+                        mock.patch.object(setup, "ENGINE_VERSION", "0.1.31"),
                         mock.patch.object(setup, "model_source", lambda: "huggingface")]
         for p in self.patches:
             p.start()
@@ -182,12 +183,12 @@ class Engine(unittest.TestCase):
             eng, out = quiet(setup.get_prebuilt, setup.PREBUILT_URL, {"arch": 89}, "gpu")
         return eng, out, heads, got
 
-    MS = "https://www.modelscope.cn/models/mymodel3861/Strata-oldhw-engine/resolve/master/oldhw-v0.1.31/"
+    MS = "https://www.modelscope.cn/models/mymodel3861/Strata-oldhw-engine/resolve/master/engine-v0.1.31/"
 
     def test_bases(self):
-        # the fork's own engine first (its ModelScope copy next), then the official release of the same version,
+        # TokenRun's build of the official engine first (its ModelScope copy next), then the official release of the same version,
         # then the official latest
-        gh = ["https://github.com/star1872/TokenRun/releases/download/oldhw-v0.1.31/",
+        gh = ["https://github.com/star1872/TokenRun/releases/download/engine-v0.1.31/",
               "https://github.com/Niko1221/Strata/releases/download/v0.1.31/", setup.UPSTREAM_PREBUILT_URL]
         self.assertEqual(setup.prebuilt_bases(setup.PREBUILT_URL), gh[:1] + [self.MS] + gh[1:])
         # mainland China: the ModelScope copy first
@@ -214,7 +215,7 @@ class Engine(unittest.TestCase):
                     self.assertIn("does not match its SHA-256", out)
 
     def test_the_fork_s_release_first(self):
-        tag = "https://github.com/star1872/TokenRun/releases/download/oldhw-v0.1.31/"
+        tag = "https://github.com/star1872/TokenRun/releases/download/engine-v0.1.31/"
         eng, out, heads, got = self.run_get([tag, setup.UPSTREAM_PREBUILT_URL])
         self.assertEqual(eng, self.root / "engine")
         self.assertEqual(got, [tag + setup.PREBUILT_ASSET])
