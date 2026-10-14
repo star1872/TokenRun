@@ -1,6 +1,6 @@
 <h1 align="center">Strata</h1>
 
-[English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [Deutsch](README.de.md) · [Français](README.fr.md) · **Español** · [Português](README.pt-BR.md)
+[English](README.strata.md) · [简体中文](README.strata.zh-CN.md) · [日本語](README.strata.ja.md) · [Deutsch](README.strata.de.md) · [Français](README.strata.fr.md) · **Español** · [Português](README.strata.pt-BR.md)
 
 <p align="center"><b>Ejecuta un modelo de IA de 125 mil millones de parámetros en tu propio PC gaming</b><br>
 Tarjeta gráfica NVIDIA o AMD (12 GB o más) · Windows o Linux · libre y de código abierto</p>

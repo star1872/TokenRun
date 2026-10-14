@@ -91,9 +91,9 @@ def package(exe: Path, vision: Path | None, out: Path) -> None:
     print(f"-> {out} ({out.stat().st_size / 1e6:.1f} MB)")
 
 
-MS_README = """# Strata engine (fork star1872/Strata, branch oldhw)
+MS_README = """# Strata engine (TokenRun, star1872/TokenRun)
 
-A copy of the ready-made engine archives of https://github.com/star1872/Strata/releases (release oldhw-v<version>),
+A copy of the ready-made engine archives of https://github.com/star1872/TokenRun/releases (release oldhw-v<version>),
 for PCs that reach ModelScope but not GitHub's downloads.  setup.py downloads them from here by itself; there is no
 need to download them by hand.  Built by GitHub Actions from the fork's sources (STRATA_PORTABLE, CUDA 13.0,
 RTX 20/30/40/50); each archive's BUILD.json names the commit.
@@ -116,7 +116,7 @@ def modelscope(files: list[Path]) -> None:
     api.login(token)
     if not api.repo_exists(repo, "model"):
         api.create_repo(repo, "model", visibility="public", license="mit",
-                        description="Ready-made Strata engine (fork star1872/Strata, branch oldhw)")
+                        description="Ready-made Strata engine (TokenRun, star1872/TokenRun)")
         print(f"created {repo}")
     api.upload_file(repo, "model", MS_README.encode(), "README.md", commit_message="README", disable_tqdm=True)
     tag = f"oldhw-v{version()}"
@@ -180,7 +180,7 @@ license: mit
 # TokenRun
 
 在自己的电脑上运行大模型：中文网页、模型管理、Strata 和 llama.cpp 两种引擎。基于
-[Niko1221/Strata](https://github.com/Niko1221/Strata)（MIT）。源码：https://github.com/star1872/Strata （分支 oldhw）。
+[Niko1221/Strata](https://github.com/Niko1221/Strata)（MIT）。源码：https://github.com/star1872/TokenRun。
 
 ## Windows
 
@@ -204,7 +204,7 @@ tokenrun
 
 TokenRun 由 **星辰**（GitHub [star1872](https://github.com/star1872)）开发并开源，引擎和原始代码来自 [Niko1221/Strata](https://github.com/Niko1221/Strata)。
 
-- 使用问题：请在 GitHub 提 [Issue](https://github.com/star1872/Strata/issues)。个人精力有限，不提供一对一的免费技术支持。
+- 使用问题：请在 GitHub 提 [Issue](https://github.com/star1872/TokenRun/issues)。个人精力有限，不提供一对一的免费技术支持。
 - 商务合作、定制开发：邮箱 cloud17778@outlook.com，或加微信（请注明来意）：
 
 <img src="https://www.modelscope.cn/models/{repo}/resolve/master/wechat-qr.png" width="273" alt="星辰的微信二维码">

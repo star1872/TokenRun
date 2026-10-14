@@ -196,8 +196,8 @@ LLAMA_CPP_ZIP = f"https://github.com/ggml-org/llama.cpp/archive/{LLAMA_CPP_COMMI
 # This fork (branch oldhw): its own engine first - the release oldhw-v<version>, built by GitHub Actions from the
 # fork's sources (.github/workflows/oldhw-engine.yml) - then the official release of the same version and the latest
 # (UPSTREAM_*), for an engine the fork does not build (CUDA 12, AMD) or a version not built yet.
-PREBUILT_URL = "https://github.com/star1872/Strata/releases/latest/download/"
-PREBUILT_TAG_URL = "https://github.com/star1872/Strata/releases/download/oldhw-v{version}/"
+PREBUILT_URL = "https://github.com/star1872/TokenRun/releases/latest/download/"
+PREBUILT_TAG_URL = "https://github.com/star1872/TokenRun/releases/download/oldhw-v{version}/"
 UPSTREAM_PREBUILT_URL = "https://github.com/Niko1221/Strata/releases/latest/download/"
 UPSTREAM_PREBUILT_TAG_URL = "https://github.com/Niko1221/Strata/releases/download/v{version}/"
 # A copy of the fork's release on ModelScope (tools/ci_package.py modelscope), for PCs that reach ModelScope but not

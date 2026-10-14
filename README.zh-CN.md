@@ -1,199 +1,99 @@
-<h1 align="center">Strata</h1>
+<h1 align="center">TokenRun</h1>
 
-[English](README.md) · **简体中文** · [日本語](README.ja.md) · [Deutsch](README.de.md) · [Français](README.fr.md) · [Español](README.es.md) · [Português](README.pt-BR.md)
+[English](README.md) · **简体中文**
 
-<p align="center"><b>在你自己的游戏电脑上运行 1250 亿参数的 AI 模型</b><br>
-NVIDIA 或 AMD 显卡（12 GB 及以上）· Windows 或 Linux · 免费开源</p>
+<p align="center"><b>在自己的电脑上运行大模型，老电脑也能跑</b><br>
+对话和模型管理网页 · Strata 和 llama.cpp 两种引擎 · Windows 和 Linux · 免费开源（MIT）</p>
 
-<p align="center"><a href="https://github.com/Niko1221/Strata/releases/download/v0.1.10/Pagoda.mp4"><img src="docs/media/pagoda-preview.webp" width="720" alt="Strata 的模型写出的体素宝塔花园，在浏览器中运行"></a><br>
-<sub>体素宝塔花园，一次提示生成，在 RTX 5070 上用 Strata 运行（IQ3_S，128K 上下文）·
-<a href="https://github.com/Niko1221/Strata/releases/download/v0.1.10/Pagoda.mp4">完整视频（49 秒）</a></sub></p>
+TokenRun 基于 Niko1221 的 [Strata](https://github.com/Niko1221/Strata)。Strata 能在游戏电脑上运行
+[Qwen3.8-Flash-Next](https://huggingface.co/Qwen/Qwen3.8-Flash-Next)（1250 亿参数）。TokenRun 在它之上增加了：
 
-Strata 能在普通电脑上运行 **[Qwen3.8-Flash-Next](https://huggingface.co/Qwen/Qwen3.8-Flash-Next)**。这是一个又大又聪明的
-AI 模型，通常要用服务器才能跑。它能聊天、写代码、看图片，还能配合你的应用和编程智能体一起工作。所有数据都留在你的电脑上。
+- **老电脑上更快的引擎。** 在 Haswell 至强 + DDR3 + PCIe 3.0 的电脑上，回答速度快约 15%；模型文件相同，精度不变
+  （测量见下文）。
+- **网页。** 模型管理页（检测本机硬件、判断哪个模型能跑、下载、启动、停止）和对话页（多个会话、系统提示词、
+  重新生成、修改后重发、数学公式）。中文和英文界面。
+- **第二种引擎 llama.cpp。** 任何 GGUF 模型都能在同一个网页里用，不只是 Qwen3.8-Flash-Next。
+- **直接能用的安装包。** Windows 解压后双击；Linux 一条命令。不用装 Python 或 git。
+- **国内能顺利下载。** 模型、引擎和安装包都有魔搭（ModelScope）下载源，按 SHA-256 校验；魔搭不通时退回 Hugging Face。
 
-## 速度有多快？
+## 下载
 
-我们在两台普通的游戏电脑上做了测试。一个 token 大约相当于 ¾ 个英文单词。
+| | 魔搭（国内推荐） | GitHub |
+|---|---|---|
+| **Windows x64** | [TokenRun-windows-x64.zip](https://www.modelscope.cn/models/mymodel3861/TokenRun/resolve/master/TokenRun-windows-x64.zip) | [TokenRun-windows-x64.zip](https://github.com/star1872/TokenRun/releases/download/tokenrun-latest/TokenRun-windows-x64.zip) |
+| **Linux x86_64** | `curl -fsSL https://www.modelscope.cn/models/mymodel3861/TokenRun/resolve/master/install.sh \| sh` | [TokenRun-linux-x64.tar.gz](https://github.com/star1872/TokenRun/releases/download/tokenrun-latest/TokenRun-linux-x64.tar.gz) |
 
-- **写回答：** 短对话中回复出现的速度。每秒 60 个 token 已经比你的阅读速度还快。
-- **读提示：** 读入你发送内容的速度（这里是一份 32K token 的文档、代码或聊天记录）。
+**Windows：** 整个解压，双击 `TokenRun.exe`。浏览器会打开模型管理页：选模型、下载、启动，然后对话。
 
-<table>
-<tr><th>NVIDIA：RTX 5070（12 GB）、Ryzen 5 7600、64 GB 内存</th><th>AMD：RX 9070 XT（16 GB）、Ryzen 9 3900X、47 GB 内存</th></tr>
-<tr><td>
+**Linux：** 运行上面的命令，然后运行 `tokenrun`。不用 sudo，装在 `~/.local/share/tokenrun`。没有屏幕的服务器：
+`tokenrun --host 0.0.0.0`，再从另一台电脑打开 `http://<服务器地址>:8090/`。再运行一次安装命令就是更新，
+已下载的模型会保留。
 
-| 规格 | 写回答 | 读提示 |
-| --- | ---: | ---: |
-| **Q2_0** | 94 tokens/s | 2,650 tokens/s |
-| **IQ2_XS** | 79 tokens/s | 2,090 tokens/s |
-| **IQ3_XXS** | 62 tokens/s | 1,750 tokens/s |
-| **IQ3_S** | 53 tokens/s | 1,620 tokens/s |
-| **Coder** | 55 tokens/s | 2,180 tokens/s |
+Strata 引擎的硬件要求和 Strata 相同：显卡 12 GB 显存以上，内存 32 GB 以上（64 GB 能跑所有版本），
+详见 [Strata 的说明](README.strata.zh-CN.md)。TokenRun 的引擎改动只在 NVIDIA 显卡上测过。
+llama.cpp 引擎可以在配置更低的电脑上跑小一些的模型，也可以只用 CPU。
 
-</td><td>
+## 老电脑上的速度
 
-| 规格 | 写回答 | 读提示 |
-| --- | ---: | ---: |
-| **Q2_0** | 60 tokens/s | 1,160 tokens/s |
-| **IQ2_XS** | 52 tokens/s | 1,110 tokens/s |
-| **Coder** | 44 tokens/s | 1,420 tokens/s |
+测试机：Xeon E5-2673 v3（12 核，只有 AVX2）、3×32 GB DDR3-1866、RTX 4060 Ti 16 GB（PCIe 3.0 x8）、SATA SSD、
+Ubuntu 24.04。Strata 0.1.39 源码编译（CUDA 12.8），64K 上下文。4 个提示词（中文作文、改代码、英译中、技术解释），
+贪心，每次 512 token，不思考。官方 Strata 和 TokenRun 交替测试，各 3 轮，每次启动前释放页缓存。3 轮取中位数：
 
-</td></tr>
-</table>
+| 模型（官方 GGUF） | Strata 0.1.39 | TokenRun | 变化 |
+| --- | ---: | ---: | ---: |
+| **Q2_0**（专家 2.25 bit） | 48.1 tok/s | **55.7 tok/s** | +15.6% |
+| **IQ3_S**（专家 3.33 bit） | 30.5 tok/s | **35.0 tok/s** | +14.8% |
 
-NVIDIA：Q2_0 用的是引擎 0.1.36，其他各行用的是 0.1.26（4K 回答，32K 提示）。完整表格见
-[DETAILS.md](docs/DETAILS.md#speed-measured)。显存越大的显卡越快：RTX 3090（24 GB）写回答应该能达到每秒约
-100-140 个 token。长对话和其他显卡的数据：[各模型的速度](docs/MODELS.md#how-fast-is-each-size)、
-[社区测试结果](docs/COMMUNITY_BENCHMARKS.md)。
+16 组（提示词 × 模型）全部更快，改代码提升最大（Q2_0 46.5 → 59.6 tok/s）。Unsloth 的 4 bit 级别版本在同一台机器上
+提升较小：UD-IQ4_XS 19.2 → 20.2 tok/s（+5.2%），UD-Q4_K_XL 15.5 → 17.0 tok/s（+10%，测了 2 轮）。
 
-<p align="center"><a href="https://buymeacoffee.com/strataengine"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="请我喝杯咖啡" height="50"></a><br>
-<sub>Strata 是免费的。如果它在你的电脑上跑得不错，请我喝杯咖啡，让这个项目继续下去。</sub></p>
+**没有变快的：** 读取提示词（预填充）的速度不变，这台机器上 Q2_0 读 3,454 token 是 715 tok/s。较新的电脑没有做对比。
+Strata 官方数字（RTX 5070 + Ryzen 5 7600 + DDR5：Q2_0 94、IQ3_S 53 tok/s）是在不同硬件上测的，不能和上表直接比较。
 
-## 你需要什么
+**精度：** 量化相同，激活的专家数相同。用 Strata 自带的 `STRATA_LOGPOS` 对同一段 3,166 token 文本逐 token 比较对数概率，
+TokenRun 与官方 Strata 的差别（平均 NLL +0.013）小于只改显存缓存大小造成的差别（+0.012 ～ +0.016），
+而改缓存大小是原版本来就允许的操作。
 
-| | |
-| --- | --- |
-| **显卡** | **NVIDIA** GeForce RTX 20、30、40 或 50 系列，或 **AMD** Radeon RX 7900 XT / XTX、RX 7800 XT / 7700 XT、RX 9060 XT、RX 9070 / 9070 XT、Radeon AI PRO R9700 或 RX 6800 / 6900 系列。需要 **12 GB 或以上显存**。 |
-| **内存** | 32 GB 或以上。内存大小决定能装下[哪个模型](#该选哪个模型)。64 GB 可以运行所有规格。 |
-| **硬盘** | 约 80 GB 可用空间。尽量用 SSD：第一次启动会快很多。 |
-| **系统** | Windows 10 / 11 或 Linux，以及 NVIDIA 或 AMD 的最新显卡驱动。 |
+完整的测量过程、数据和没有效果的尝试：[README.oldhw.zh-CN.md](README.oldhw.zh-CN.md) 和上游 issue
+[Niko1221/Strata#906](https://github.com/Niko1221/Strata/issues/906)。
 
-其他的都由安装程序搞定。两到三张显卡可以分担同一个模型（[多 GPU](docs/MULTI_GPU.md)）。
+### 速度从哪里来
 
-实验性支持，由社区成员在自己的机器上编写和测试：
+1. **Q2_0 的 AVX2 计算内核**：来自上游 PR [#706](https://github.com/Niko1221/Strata/pull/706)（作者 @merbanan），
+   移植过来并实测：+4.3%。
+2. **专家换入显存不再卡住解码**（慢 PCIe 上）：来自上游 PR [#764](https://github.com/Niko1221/Strata/pull/764)
+   （作者 @merbanan），移植到 0.1.39：+7%。
+3. **显存专家缓存换得更积极**（`--adapt-every 1 --adapt-swaps 160 --adapt-decay 0.97`）：我们自己测出来的；
+   上游 PR [#907](https://github.com/Niko1221/Strata/pull/907) 让 `--calibrate` 在你的电脑上实测这一项：+7.9%。
+   内存慢的电脑上，CPU 少算约 30% 的专家。
 
-- **较老的显卡**（Tesla P40 / V100、GTX 10、Radeon VII / MI50、RX 6700 XT、RX 5500 XT）：[较老的 GPU](docs/OLDER_GPUS.md)。
-- **Intel Arc**，在 Linux 上从源码构建：[Intel Arc](docs/INTEL_ARC.md)。
-- **不支持 AVX2 的老处理器**：能用，但很慢。[较老的 CPU](docs/INSTALL.md#older-cpus-experimental)。
+其他已提交上游的改动：魔搭下载（#908）、`--inspect` 查 GGUF 的真实 bit 数（#911）、PCIe 链路检查（#912）。
 
-完整列表：[docs/INSTALL.md](docs/INSTALL.md#what-you-need)。
+## llama.cpp 引擎
 
-## 安装
+在模型管理页选「llama.cpp」，就能用 ggml-org 官方编译的 llama.cpp 下载并运行任何 GGUF 模型。
+在上面的测试机上实测：Qwen3.6-35B-A3B UD-Q4_K_XL 生成 40.85 tok/s，读 3,453 token 提示词 384 tok/s。
+这是 llama.cpp 本身的速度，TokenRun 没有改 llama.cpp 引擎。
 
-### 让你的 AI 帮你装
+## 从源码安装
 
-你在用 AI 编程助手吗（Claude Code、Cursor、Codex、GitHub Copilot 等）？把下面这段粘贴给它：
-
-```text
-Set up Strata on this PC for me: https://github.com/Niko1221/Strata - follow docs/AI_SETUP.md in that repository.
+```bash
+git clone https://github.com/star1872/TokenRun.git
+cd TokenRun
+./setup.sh            # Linux；Windows 用 START-HERE.bat
 ```
 
-它会检查你的显卡、内存和硬盘，选出合适的模型。然后安装并启动它，再告诉你怎么连接你的应用。AI 工具也可以通过
-Strata 的 [MCP 服务器](docs/MCP_SERVER.md)来安装、启动和停止 Strata。
+`setup` 会下载 TokenRun 预编译的 Strata 引擎（GitHub Actions 编译，release `oldhw-v<版本>`），加 `--build` 则自己编译。
+Strata 的安装说明：[docs/INSTALL.md](docs/INSTALL.md)。
 
-### 或者自己动手
+## 作者与许可证
 
-[下载 Strata](https://github.com/Niko1221/Strata/archive/refs/heads/main.zip) 并解压（或者用 `git clone`）。
-**Windows：** 双击 **`START-HERE.bat`**。**Linux：** 在 Strata 文件夹里运行 **`./setup.sh`**。
+TokenRun 由 **星辰**（GitHub [star1872](https://github.com/star1872)）开发并开源。引擎和原始代码来自 Niko1221 的
+[Strata](https://github.com/Niko1221/Strata)，MIT 许可证，两行版权声明都在 [LICENSE](LICENSE) 里。
+TokenRun 下载的 llama.cpp 来自 [ggml-org](https://github.com/ggml-org/llama.cpp)，MIT 许可证。
 
-NVIDIA 和 AMD 的步骤完全一样。安装程序会识别你的显卡，并装好对应的引擎。它会问你几个问题：
+- **使用问题和 bug**：请提 [GitHub Issue](https://github.com/star1872/TokenRun/issues)，公开回答，其他人也能看到。
+  个人精力有限，不提供一对一的免费技术支持。
+- **商务合作、定制开发**：邮箱 cloud17778@outlook.com，或加微信（请注明来意）：
 
-- 用哪个模型、哪个规格，
-- 上下文多大（模型能记住多少文字），
-- 是否要识别图片。
-
-每次直接按回车就是推荐选项。之后它会下载模型（约 70 GB）并启动。如果下载中断了，再运行一次即可：它会从中断的地方继续。
-浏览器会打开 Strata 应用，地址是 `http://127.0.0.1:8080`。
-
-> **模型启动时，你的电脑可能会变慢或卡住 1-3 分钟**（第一次最久）。
-> Strata 会把 35-55 GB 加载到内存，并为显卡锁定其中一部分。这是正常的。请耐心等待，不要关闭窗口。
-> 窗口里会显示 Strata 正在做什么。
-
-**下次使用时**，再运行一次 `START-HERE.bat`（或 `./setup.sh`）。它会马上启动，已下载的东西不会重复下载。关闭它的窗口就能停止模型。
-`UPDATE.bat`（`./update.sh`）只更新 Strata，不启动。更新、Docker、多张显卡、文件存放位置以及所有选项：
-[docs/INSTALL.md](docs/INSTALL.md)。
-
-## 该选哪个模型
-
-安装程序会根据你的内存推荐一个。同一个模型有几种规格，压缩程度不同。规格越小越快，越大越聪明一些。
-
-| 你的内存 | 选择 | 原因 |
-| --- | --- | --- |
-| **32 GB** | **Coder** | 32 GB 装得下，而且专为代码打造（如果显卡是 24 GB，Q2_0 和 IQ2_XS 也能跑） |
-| **48 GB** | **IQ2_XS**（或 Q2_0，最快） | 更大的规格装不下 |
-| **64 GB** | **IQ2_XS**（推荐），或 IQ3_XXS / IQ3_S | 所有规格都装得下；IQ3_S 最好，也最慢 |
-| **96 GB 或以上** | **IQ3_S**，或 Unsloth 的 UD-IQ4_XS（约 4-bit） | 开着其他程序也能放下最大的规格 |
-
-- **[Coder](docs/MODELS.md#coder)：** 编程版本，去掉了一半专家。它达到完整模型 SWE-bench Verified 分数的 91%（由其作者测得），
-  32 GB 内存就能装下。代码以外的能力较弱，包括中文和其他中日韩文本（#438）。这类用途请选 Q2_0、IQ2_XS 或 IQ3_S，
-  它们保留了所有专家。
-- **[Swift 1.5](docs/MODELS.md#swift-15)：** 一个微调版本，回答前思考的时间短得多。你能更早拿到答案，质量基本不变。
-- **[Unsloth UD-IQ4_XS](docs/MODELS.md#unsloth-ud-iq4_xs)：** Unsloth 的约 4-bit 版本，质量介于 IQ3_S 和 UD-Q4_K_XL 之间。
-  下载 94 GB。内存少于约 80 GB 时，Strata 回答时要从 SSD 读取其中一部分，所以会更慢（NVMe SSD 有帮助）。
-- **[Unsloth UD-Q4_K_XL](docs/MODELS.md#unsloth-ud-q4_k_xl-experimental)**（实验性）：最接近完整模型。但 Strata
-  回答时要从 SSD 读取其中大部分内容，所以在 64 GB 的电脑上每秒只能写 7-8.5 个 token。
-- **[OrcaRouter 的 Uncensored IQ3_XXS](docs/MODELS.md#orcarouter-uncensored-iq3_xxs)：** 需要手动设置，不在安装程序的菜单里。
-
-规格、下载以及各配置能装下什么：[docs/MODELS.md](docs/MODELS.md)。以后想再添加模型，运行
-`SETUP.bat`（Linux：`./setup.sh --setup`）。
-
-## 使用方法
-
-<p align="center"><img src="docs/media/runpagoda.png" width="900" alt="Strata 应用的 Monitor 标签页，旁边是一个编程智能体"><br>
-<sub>Strata 应用的 <b>Monitor</b>（左），编程智能体正在写视频里的宝塔花园（右）</sub></p>
-
-- **在浏览器里：** 打开 `http://127.0.0.1:8080`。里面有 **Chat**（聊天）、实时 **Monitor**（监控模型和你的
-  GPU/CPU/内存），以及 **About**（设置和地址）。
-- **你的应用和编程智能体：** 添加一个“OpenAI 兼容”的提供商，base URL 填 **`http://127.0.0.1:8080/v1`**。
-  API key 和模型名随便填都行。
-  - 使用 Anthropic API 的应用：`http://127.0.0.1:8080/v1/messages`（Claude Code：
-    `ANTHROPIC_BASE_URL=http://127.0.0.1:8080`）。
-  - Codex CLI 和其他使用 OpenAI Responses API 的应用：`/v1/responses`
-    （[设置方法](docs/DETAILS.md#the-responses-api-and-codex-cli)）。
-- **思考：** 在聊天菜单或应用的“reasoning effort”里选择 **off、low、medium 或 high**。off 最快，
-  high 最适合难题。
-- **图片：** 在安装时对“Images?”选是。然后在聊天里点 **Picture**，或在你的应用里附上图片。
-  AMD 显卡在 Linux 上通过处理器识别图片；在 Windows 上暂时还不行。
-- **从手机或另一台电脑访问：** `START-HERE.bat --setup --host 0.0.0.0 --api-key <secret>`。一定要设置 key。
-- **一次处理一个请求：** 默认情况下 Strata 一次只回答一个请求，其他请求排队等待。想同时回答多个，
-  设置 `"parallel": 2`（[BATCHING.md](docs/BATCHING.md)）。在 12 GB 显卡上，这会让每个回答变慢。
-- **长提示：** Strata 会完整读入对话的第一条消息，大约每 30,000 个 token 需要 1 分钟。之后的消息几秒内就开始回答。
-
-更多：[聊天记录存在哪里](docs/INSTALL.md#where-things-are-stored)、[API](docs/DETAILS.md#using-it)。
-
-## 出问题了？
-
-- **Strata 第一次启动时电脑卡死了。** 加载模型时这是正常的。请耐心等待，不要关闭窗口。
-  10 分钟后还卡着？重启电脑，关掉其他程序再试一次，或者换一个更小的规格。
-- **下载或安装时中断了。** 再运行一次 `START-HERE.bat`（或 `./setup.sh`）。它会从中断的地方继续。
-- **非常慢，硬盘灯一直闪，或者提示“the engine stopped unexpectedly”。** 你的电脑可用内存不够。
-  关掉其他程序（浏览器很占内存），或者换一个更小的规格（Q2_0 或 IQ2_XS）。
-- **提示 8080 端口已被占用。** Strata 已经在运行了。找一下它的窗口。
-
-更多问题和解决办法：[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)。还是解决不了？提交一个
-[issue](https://github.com/Niko1221/Strata/issues)，并附上 Strata 文件夹里的 `strata-<model>.log`。发现了安全问题？
-请私下报告：[SECURITY.md](SECURITY.md)。
-
-## 它是怎么工作的？
-
-这类模型通常运行在拥有数百 GB 显存的服务器上。而你的显卡只有 12-24 GB。Strata 让模型装得下的办法是
-**把工作分摊到整台电脑上**。可以想象一个厨房：常用的东西放在台面上，其余的放在储藏室里。
-
-<p align="center"><img src="docs/media/how-it-works.svg" width="860" alt="模型的 24,576 个专家：最常用的在显卡上，全部在内存里，一张查找表在 SSD 上"></p>
-
-- **这个模型是由 24,576 个小专家（“experts”）组成的团队。** 每个词只需要其中 10 个。
-- **你的显卡** 存放最常用的几千个专家。**你的内存** 存放全部专家，
-  **你的处理器** 同时处理其余的部分。**你的 SSD** 存放一张大查找表。
-
-<p align="center"><img src="docs/media/guess-and-check.svg" width="860" alt="一个小助手猜测接下来的几个词；大模型一次性全部检查，保留正确的"></p>
-
-- **先猜，再检查：** 一个小助手先猜接下来的几个词，大模型再一次性检查它们。答案完全一样，但快 1.6-1.8 倍。
-- **长文本分大块读入**（每次最多 8,192 个 token），速度超过每秒 1,000 个 token。
-
-更详细的解释：[docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md)。每个部分及其数据：
-[详细说明](docs/DETAILS.md#how-it-works)和[论文](docs/paper/Strata-Paper.pdf)。
-
-## 致谢与许可证
-
-模型是 Qwen 团队的 [Qwen3.8-Flash-Next](https://huggingface.co/Qwen/Qwen3.8-Flash-Next)。它由
-[ISTA-DASLab](https://huggingface.co/ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF)、UkisAI（Swift 1.5）
-和 Unsloth 压缩。Strata 使用了 [llama.cpp / ggml](https://github.com/ggml-org/llama.cpp) 的部分代码。完整致谢：
-[docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md#credits)。Strata 以 [MIT 许可证](LICENSE)开源。少数部分和每个模型
-有各自的许可证（[具体是哪些](docs/HOW_IT_WORKS.md#license)）。
-
-## 支持 Strata
-
-Strata 免费且开源。如果它对你有用，欢迎支持它的开发：
-
-<p align="center"><a href="https://buymeacoffee.com/strataengine"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="请我喝杯咖啡" height="50"></a></p>
+<img src="docs/media/wechat-qr.png" width="273" alt="星辰的微信二维码">

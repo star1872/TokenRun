@@ -8,14 +8,14 @@ set -eu
 NAME=TokenRun-linux-x64.tar.gz
 URLS="${TOKENRUN_URL:-}
 https://www.modelscope.cn/models/mymodel3861/TokenRun/resolve/master/$NAME
-https://github.com/star1872/Strata/releases/download/tokenrun-latest/$NAME"
+https://github.com/star1872/TokenRun/releases/download/tokenrun-latest/$NAME"
 DEST="${TOKENRUN_HOME:-$HOME/.local/share/tokenrun}"
 BIN="$HOME/.local/bin"
 
 say() { printf '%s\n' "$*"; }
 if [ "$(uname -s)" != Linux ] || [ "$(uname -m)" != x86_64 ]; then
     say "TokenRun's ready-made package is for Linux on x86_64 (this is $(uname -s) $(uname -m))."
-    say "From the source instead: git clone https://github.com/star1872/Strata && cd Strata && ./setup.sh"
+    say "From the source instead: git clone https://github.com/star1872/TokenRun && cd TokenRun && ./setup.sh"
     exit 1
 fi
 if command -v curl >/dev/null 2>&1; then get() { curl -fL --retry 2 --connect-timeout 15 -o "$2" "$1"; }

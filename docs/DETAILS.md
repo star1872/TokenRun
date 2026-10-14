@@ -1,7 +1,7 @@
 # Strata - the details
 
 The technical side of Strata: every measured number, the API, images, all settings and how the engine works.
-New here? Start with the [README](../README.md); installing step by step is in [INSTALL.md](INSTALL.md), the models in
+New here? Start with the [README](../README.strata.md); installing step by step is in [INSTALL.md](INSTALL.md), the models in
 [MODELS.md](MODELS.md), common problems in [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 > **On this page:** [Speed](#speed-measured) · [Other GPUs](#other-gpus-estimated) · [Which model?](#which-model) ·

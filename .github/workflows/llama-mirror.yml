@@ -6,7 +6,7 @@ name: llama.cpp mirror (oldhw)
 on:
   workflow_dispatch:
   push:
-    branches: [oldhw]
+    branches: [main]
     paths: ["serve/llama_models.py", ".github/workflows/llama-mirror.yml"]
 
 jobs:

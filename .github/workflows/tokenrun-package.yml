@@ -7,7 +7,7 @@ name: TokenRun packages (oldhw)
 on:
   workflow_dispatch:
   push:
-    branches: [oldhw]
+    branches: [main]
 
 permissions:
   contents: write                                 # the release tokenrun-latest
@@ -47,9 +47,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp tools/portable/install.sh dist/install.sh
-          NOTES="TokenRun ready-to-run packages (branch oldhw, ${GITHUB_SHA::7}). Windows: unzip, double-click TokenRun.exe. Linux: curl -fsSL https://www.modelscope.cn/models/mymodel3861/TokenRun/resolve/master/install.sh | sh"
-          gh release view tokenrun-latest >/dev/null 2>&1 || gh release create tokenrun-latest --target "$GITHUB_SHA" --title "TokenRun (latest)" --notes "$NOTES" --prerelease
-          gh release edit tokenrun-latest --notes "$NOTES"
+          NOTES="TokenRun ready-to-run packages (${GITHUB_SHA::7}). Windows: unzip, double-click TokenRun.exe. Linux: curl -fsSL https://www.modelscope.cn/models/mymodel3861/TokenRun/resolve/master/install.sh | sh"
+          gh release view tokenrun-latest >/dev/null 2>&1 || gh release create tokenrun-latest --target "$GITHUB_SHA" --title "TokenRun (latest)" --notes "$NOTES" --latest
+          gh release edit tokenrun-latest --notes "$NOTES" --prerelease=false --latest
           gh release upload tokenrun-latest dist/TokenRun-windows-x64.zip dist/TokenRun-linux-x64.tar.gz dist/install.sh --clobber
       - name: copy on ModelScope
         env:

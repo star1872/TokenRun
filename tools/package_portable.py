@@ -62,8 +62,8 @@ Models are downloaded into the Strata-data folder beside app/ unless you choose 
 模型默认下载到 app 旁边的 Strata-data 文件夹，也可以在页面上改。
 
 TokenRun is built on Strata by Niko1221 (https://github.com/Niko1221/Strata), MIT license: see LICENSE.
-TokenRun: 星辰 (https://github.com/star1872/Strata). Questions: GitHub Issues. Business: cloud17778@outlook.com
-TokenRun 作者：星辰（https://github.com/star1872/Strata）。使用问题请提 Issue；商务合作：cloud17778@outlook.com
+TokenRun: 星辰 (https://github.com/star1872/TokenRun). Questions: GitHub Issues. Business: cloud17778@outlook.com
+TokenRun 作者：星辰（https://github.com/star1872/TokenRun）。使用问题请提 Issue；商务合作：cloud17778@outlook.com
 The llama.cpp engine it downloads is ggml-org's (https://github.com/ggml-org/llama.cpp), MIT license.
 """
 

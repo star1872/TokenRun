@@ -91,8 +91,8 @@ UD-Q4_K_XL 各提示词（官方路径 → 本分支）：作文 15.3 → 19.0�
 本分支改了引擎，setup 下载的官方预编译引擎里没有这些改动，所以要编译：
 
 ```bash
-git clone -b oldhw https://github.com/star1872/Strata.git
-cd Strata
+git clone https://github.com/star1872/TokenRun.git
+cd TokenRun
 ./setup.sh --build --model IQ3_S        # 或 --model Q2_0；--source 默认 auto（ModelScope 优先）
 ```
 
@@ -131,7 +131,7 @@ Windows：本分支没在 Windows 上测过。
 TokenRun（本分支的网页、模型管理、llama.cpp 后端、安装包和老平台优化）由 **星辰**（GitHub
 [star1872](https://github.com/star1872)）开发并开源；引擎和原始代码来自 [Niko1221/Strata](https://github.com/Niko1221/Strata)。
 
-- **使用问题**：请在 GitHub 提 [Issue](https://github.com/star1872/Strata/issues)，公开回答，其他人也能看到。个人精力有限，不提供一对一的免费技术支持。
+- **使用问题**：请在 GitHub 提 [Issue](https://github.com/star1872/TokenRun/issues)，公开回答，其他人也能看到。个人精力有限，不提供一对一的免费技术支持。
 - **商务合作、定制开发**：邮箱 cloud17778@outlook.com，或加微信（请注明来意）：
 
 <img src="docs/media/wechat-qr.png" width="273" alt="星辰的微信二维码">

@@ -7,7 +7,7 @@ name: engine (oldhw)
 on:
   workflow_dispatch:
   push:
-    branches: [oldhw]
+    branches: [main]
     paths: ["src/**", "include/**", "CMakeLists.txt", "third_party/ggml/**", "tools/vision/**",
             ".github/workflows/oldhw-engine.yml", "tools/ci_package.py"]
 
@@ -94,8 +94,8 @@ jobs:
         run: |
           V=$(python3 -c "import re;print(re.search(r'project\(strata VERSION ([\d.]+)',open('CMakeLists.txt').read()).group(1))")
           TAG="oldhw-v$V"
-          NOTES="Ready-made engine of this fork (branch oldhw, ${GITHUB_SHA::7}): the official build settings (STRATA_PORTABLE, CUDA 13.0, RTX 20/30/40/50) with this fork's engine changes. Built by GitHub Actions without a GPU. Linux: measured on an RTX 4060 Ti 16 GB / Xeon E5-2673 v3. Windows: NOT yet tested on a Windows PC with a GPU."
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG (engine, oldhw)" --notes "$NOTES"
+          NOTES="Ready-made engine of TokenRun (${GITHUB_SHA::7}): the official build settings (STRATA_PORTABLE, CUDA 13.0, RTX 20/30/40/50) with this fork's engine changes. Built by GitHub Actions without a GPU. Linux: measured on an RTX 4060 Ti 16 GB / Xeon E5-2673 v3. Windows: NOT yet tested on a Windows PC with a GPU."
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG (engine, oldhw)" --notes "$NOTES" --latest=false
           gh release edit "$TAG" --notes "$NOTES"
           gh release upload "$TAG" dist/*.zip --clobber
       # the same archives on ModelScope for mainland China (setup.py tries it first there); skipped without the token
