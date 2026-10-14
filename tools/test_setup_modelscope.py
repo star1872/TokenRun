@@ -173,8 +173,8 @@ class NoLengthOnHead(Download):
         self.addCleanup(self.server.shutdown)
         os.environ["MODELSCOPE_ENDPOINT"] = "http://127.0.0.1:%d" % self.server.server_address[1]
 
-    def test_a_cut_transfer_is_resumed(self):
-        with mock.patch.object(setup, "reachable", return_value=True), mock.patch.object(setup, "ms_meta",
+    def test_a_cut_transfer_is_resumed(self):                 # one stream (the parallel path probes a range first)
+        with mock.patch.dict(os.environ, {"STRATA_DL_CONNECTIONS": "1"}),                 mock.patch.object(setup, "reachable", return_value=True), mock.patch.object(setup, "ms_meta",
                                                                                           return_value=None),                 mock.patch.object(setup, "say"):
             setup.download(HF_URL, self.dst)
         self.assertEqual(self.dst.read_bytes(), self.data)
@@ -182,6 +182,118 @@ class NoLengthOnHead(Download):
 
     test_right_hash_is_kept = test_wrong_hash_is_deleted = test_no_hash_published = None
     test_falls_back_when_modelscope_is_silent = None
+
+
+class RangeServer(http.server.BaseHTTPRequestHandler):
+    """A file served with byte ranges (or without them, `ranges` False), every GET's range recorded; `cut` cuts the
+    answer to the first n bytes once (a dropped connection)."""
+    data, ranges, gets, cut = b"", True, [], 0
+
+    def log_message(self, *a):
+        pass
+
+    def do_HEAD(self):                                    # as ModelScope: no length on HEAD
+        self.send_response(200)
+        self.end_headers()
+
+    def do_GET(self):
+        cls, data = type(self), type(self).data
+        m = re.match(r"bytes=(\d+)-(\d*)", self.headers.get("Range", ""))
+        if not (m and cls.ranges):
+            cls.gets.append(None)
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        start, end = int(m.group(1)), int(m.group(2) or len(data) - 1)
+        cls.gets.append((start, end))
+        body = data[start:end + 1]
+        self.send_response(206)
+        self.send_header("Content-Range", f"bytes {start}-{end}/{len(data)}")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if cls.cut and len(body) > cls.cut:
+            body, cls.cut = body[:cls.cut], 0
+        self.wfile.write(body)
+
+
+class Parallel(Base):
+    """A big file over several connections, a chunk each (STRATA_DL_CONNECTIONS, default 4), resumable by chunk."""
+
+    def setUp(self):
+        super().setUp()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.data = os.urandom(1_000_003)
+        handler = type("H", (RangeServer,), {"data": self.data, "gets": []})
+        self.handler = handler
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.url = "http://127.0.0.1:%d/f.gguf" % self.server.server_address[1]
+        self.dst = Path(self.tmp.name) / "f.gguf"
+        self.part = self.dst.with_name("f.gguf.part")
+        for name, value in (("DL_CHUNK", 100_000), ("DL_PARALLEL_MIN", 200_000)):
+            p = mock.patch.object(setup, name, value)
+            p.start()
+            self.addCleanup(p.stop)
+        for p in (mock.patch.object(setup, "model_source", lambda: "huggingface"),
+                  mock.patch.object(setup.time, "sleep"), mock.patch.dict(os.environ, {"STRATA_DL_CONNECTIONS": "4"})):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def chunk_gets(self):
+        return sorted(g for g in self.handler.gets if g and g != (0, 0))
+
+    def test_every_chunk_once(self):
+        setup.download(self.url, self.dst)
+        self.assertEqual(self.dst.read_bytes(), self.data)
+        self.assertEqual(self.chunk_gets(), [(i, min(i + 99_999, len(self.data) - 1)) for i in range(0, len(self.data), 100_000)])
+        self.assertFalse(self.part.exists() or self.part.with_name("f.gguf.part.chunks").exists())
+
+    def test_a_dropped_connection_is_resumed_within_its_chunk(self):
+        self.handler.cut = 30_000
+        setup.download(self.url, self.dst)
+        self.assertEqual(self.dst.read_bytes(), self.data)
+
+    def test_resumes_with_the_chunks_missing(self):
+        # a run stopped after chunks 0, 3 and 9: their bytes are on the disk, the state lists them
+        buf = bytearray(len(self.data))
+        for i in (0, 3, 9):
+            buf[i * 100_000:(i + 1) * 100_000] = self.data[i * 100_000:(i + 1) * 100_000]
+        self.part.write_bytes(bytes(buf[:1_000_000]))
+        self.part.with_name("f.gguf.part.chunks").write_text(
+            json.dumps({"total": len(self.data), "chunk": 100_000, "done": [0, 3, 9]}))
+        self.assertEqual(setup.part_bytes(self.part), 300_000)
+        setup.download(self.url, self.dst)
+        self.assertEqual(self.dst.read_bytes(), self.data)
+        self.assertNotIn(300_000, [g[0] for g in self.chunk_gets()])
+        self.assertEqual(len(self.chunk_gets()), 8)
+
+    def test_a_one_stream_part_counts(self):
+        self.part.write_bytes(self.data[:450_000])          # an older setup's .part: chunks 0-3 are whole
+        setup.download(self.url, self.dst)
+        self.assertEqual(self.dst.read_bytes(), self.data)
+        self.assertEqual([g[0] for g in self.chunk_gets()], [i * 100_000 for i in range(4, 11)])
+
+    def test_no_ranges_one_stream(self):
+        self.handler.ranges = False
+        setup.download(self.url, self.dst)
+        self.assertEqual(self.dst.read_bytes(), self.data)
+
+    def test_small_file_one_stream(self):
+        with mock.patch.object(setup, "DL_PARALLEL_MIN", 2_000_000):
+            setup.download(self.url, self.dst)
+        self.assertEqual(self.dst.read_bytes(), self.data)
+        self.assertEqual([g for g in self.handler.gets if g != (0, 0)], [(0, len(self.data) - 1)])
+
+    def test_one_connection_by_choice(self):
+        with mock.patch.dict(os.environ, {"STRATA_DL_CONNECTIONS": "1"}):
+            setup.download(self.url, self.dst)
+        self.assertEqual(self.dst.read_bytes(), self.data)
+        self.assertNotIn((0, 0), self.handler.gets)
 
 
 if __name__ == "__main__":

@@ -287,7 +287,7 @@ def left_gb(variant: dict, dest: Path) -> float:
     for f in variant["files"]:
         dst = dest / Path(f["path"]).name
         part = dst.with_name(dst.name + ".part")
-        have = dst.stat().st_size if dst.exists() else part.stat().st_size if part.exists() else 0
+        have = dst.stat().st_size if dst.exists() else S.part_bytes(part)
         left += max(0, f["size"] - have)
     return left / 1e9
 

@@ -18,7 +18,9 @@ TokenRun adds:
 - **A second engine: llama.cpp.** Any GGUF model, not only Qwen3.8-Flash-Next, in the same web app.
 - **Ready-to-run packages.** Windows: unzip and double-click. Linux: one command. No Python or git needed.
 - **Downloads that work from mainland China.** Models, engines and packages also come from ModelScope, checked by
-  SHA-256; Hugging Face is the fallback.
+  SHA-256; Hugging Face is the fallback. Big files come over 4 connections at once (ModelScope serves one connection
+  at about 10 MB/s): a 5 GB file took 331 s instead of 598 s on our ~120 Mbit/s line; `STRATA_DL_CONNECTIONS=1`
+  turns it off.
 
 ## Download
 

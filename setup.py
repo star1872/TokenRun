@@ -51,6 +51,7 @@ import struct
 import subprocess
 import sys
 import textwrap
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -404,6 +405,18 @@ def done(path: Path) -> bool:
 
 def mark(path: Path, text=""):
     path.with_name(path.name + ".done").write_text(text or time.strftime("%Y-%m-%d %H:%M"), encoding="utf-8")
+
+
+def part_bytes(part: Path) -> int:
+    """How much of a download in progress (<name>.part) is on the disk: a parallel download writes its chunks in
+    any order, so its file is as long as its furthest chunk - its <name>.part.chunks lists the chunks finished."""
+    if not part.is_file():
+        return 0
+    try:
+        st = json.loads(part.with_name(part.name + ".chunks").read_text(encoding="utf-8"))
+        return sum(min(st["chunk"], st["total"] - i * st["chunk"]) for i in st["done"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return part.stat().st_size
 
 
 # ------------------------------------------------------------------------------------------------ the PC
@@ -1165,6 +1178,121 @@ def drop_archive(z: Path) -> None:
     z.with_name(z.name + ".done").unlink(missing_ok=True)
 
 
+# A big file comes over several connections at once, each with a chunk of it: ModelScope serves one connection at about
+# 10 MB/s.  llmserver (a ~120 Mbit/s line), 2026-10-14, one 21 GB file: 1 connection 10.0-10.5 MB/s, 4 connections
+# 15.3 MB/s, 8 connections 15.4 MB/s (the line).  STRATA_DL_CONNECTIONS=1 downloads one stream as before.
+DL_CONNECTIONS = 4
+DL_CHUNK = 64 << 20                    # a chunk is fetched (and resumed) whole: at most this much per connection is lost
+DL_PARALLEL_MIN = 256 << 20            # smaller files: one connection
+
+
+def dl_connections() -> int:
+    try:
+        return max(1, min(16, int(os.environ.get("STRATA_DL_CONNECTIONS") or DL_CONNECTIONS)))
+    except ValueError:
+        return DL_CONNECTIONS
+
+
+def range_total(url: str) -> int:
+    """The file's size when the server answers a byte range (206 with a Content-Range), else 0: no parallel download."""
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "strata-setup", "Range": "bytes=0-0"})
+            with urllib.request.urlopen(req, timeout=60) as r:
+                m = re.match(r"bytes 0-0/(\d+)$", r.headers.get("Content-Range") or "")
+                return int(m.group(1)) if r.status == 206 and m else 0
+        except urllib.error.HTTPError:
+            return 0
+        except OSError:
+            time.sleep(5)
+    return 0
+
+
+def download_parallel(url: str, part: Path, total: int, label: str, n: int) -> None:
+    """`total` bytes of `url` into `part` over n connections, DL_CHUNK at a time.  The chunks finished are listed in
+    <part>.chunks after each one, so a run stopped anywhere resumes with the chunks still missing; a .part an older
+    one-stream download left counts with its whole chunks."""
+    state = part.with_name(part.name + ".chunks")
+    count = (total + DL_CHUNK - 1) // DL_CHUNK
+    size = lambda i: min(DL_CHUNK, total - i * DL_CHUNK)  # noqa: E731
+    finished: set[int] = set()
+    try:
+        st = json.loads(state.read_text(encoding="utf-8"))
+        if st.get("total") == total and st.get("chunk") == DL_CHUNK and part.is_file():
+            finished = {int(i) for i in st["done"] if 0 <= int(i) < count}
+    except (OSError, ValueError, KeyError, TypeError):
+        if part.is_file():                             # one stream got this far: its whole chunks are done
+            finished = set(range(min(count, part.stat().st_size // DL_CHUNK)))
+    if not part.is_file():
+        part.write_bytes(b"")
+    todo = [i for i in range(count) if i not in finished]
+    lock = threading.Lock()
+    got = [sum(size(i) for i in finished)]
+    failed: list[str] = []
+
+    def save():
+        tmp = state.with_name(state.name + ".tmp")
+        tmp.write_text(json.dumps({"total": total, "chunk": DL_CHUNK, "done": sorted(finished)}), encoding="utf-8")
+        tmp.replace(state)
+
+    def worker():
+        with open(part, "r+b") as f:
+            while not failed:
+                with lock:
+                    if not todo:
+                        return
+                    i = todo.pop(0)
+                start = pos = i * DL_CHUNK
+                end = start + size(i)
+                for attempt in range(30):
+                    try:
+                        req = urllib.request.Request(url, headers={"User-Agent": "strata-setup",
+                                                                   "Range": f"bytes={pos}-{end - 1}"})
+                        with urllib.request.urlopen(req, timeout=60) as r:
+                            if r.status != 206:
+                                raise OSError(f"the server ignored the byte range (HTTP {r.status})")
+                            while pos < end:
+                                b = r.read(min(1 << 20, end - pos))
+                                if not b:
+                                    break
+                                f.seek(pos)
+                                f.write(b)
+                                pos += len(b)
+                                with lock:
+                                    got[0] += len(b)
+                        if pos == end:
+                            break
+                        raise OSError("the connection closed early")
+                    except OSError as e:
+                        if failed:
+                            return
+                        if attempt == 29:
+                            failed.append(f"bytes {start:,}-{end - 1:,}: {e}")
+                            return
+                        time.sleep(10)
+                f.flush()
+                with lock:
+                    finished.add(i)
+                    save()
+
+    threads = [threading.Thread(target=worker, daemon=True) for _ in range(min(n, len(todo)))]
+    for t in threads:
+        t.start()
+    t0, got0 = time.time(), got[0]
+    while any(t.is_alive() for t in threads):
+        time.sleep(1)
+        rate = (got[0] - got0) / max(time.time() - t0, 1e-3) / 1e6
+        print(f"\r  {label}: {got[0] / 1e9:6.2f} / {total / 1e9:.2f} GB ({100 * got[0] / total:.0f}%), "
+              f"{rate:.1f} MB/s, {len(threads)} connections   ", end="", flush=True)
+    print()
+    if failed or len(finished) != count:
+        fail(f"could not finish downloading {part.name[:-5]} ({failed[0] if failed else 'chunks missing'})",
+             "check your internet connection and run it again (the download resumes where it stopped)")
+    with open(part, "r+b") as f:
+        f.truncate(total)
+    state.unlink(missing_ok=True)
+
+
 def download(url, dst: Path, what=None):
     """Resumable HTTP(S) download with a progress line; `file://` and plain paths are copied (tests, mirrors).
     A finished file gets a <name>.done mark, so a later run skips it without asking the server."""
@@ -1211,6 +1339,15 @@ def download(url, dst: Path, what=None):
         mark(dst)
         ok(f"{what or dst.name} already downloaded")
         return
+    if dl_connections() > 1 and (not total or total >= DL_PARALLEL_MIN):
+        size = range_total(url)                        # ModelScope's HEAD has no length; its ranged GET has
+        if size >= DL_PARALLEL_MIN and (not total or size == total):
+            download_parallel(url, part, size, what or dst.name, dl_connections())
+            return finish_download(part, dst, ms, what)
+    state = part.with_name(part.name + ".chunks")
+    if state.exists():                                 # a parallel download this server cannot continue: start over
+        state.unlink()
+        part.unlink(missing_ok=True)
     have = part.stat().st_size if part.exists() else 0
     for attempt in range(30):
         try:
@@ -1246,6 +1383,12 @@ def download(url, dst: Path, what=None):
     if total and part.stat().st_size != total:
         fail(f"could not finish downloading {dst.name}: {part.stat().st_size:,} bytes on disk, the server says {total:,}",
              "check your internet connection and run it again (the download resumes where it stopped)")
+    finish_download(part, dst, ms, what)
+
+
+def finish_download(part: Path, dst: Path, ms, what=None) -> None:
+    """A complete <name>.part becomes the file: checked against ModelScope's published SHA-256 when it came from
+    there, then marked done."""
     part.replace(dst)
     meta = ms_meta(*ms) if ms is not None else None
     if meta is not None and meta[1]:
@@ -4337,7 +4480,8 @@ def main() -> int:
     have_model = all(s.exists() and (done(s) or a.gguf_dir) for s in shards)
     # #425 (jctaborda): a download that resumes needs room only for what is still missing - the finished shards and
     # the .part files already on the disk count
-    on_disk = sum(f.stat().st_size for s in shards for f in (s, s.with_name(s.name + ".part")) if f.is_file()) / 1e9
+    on_disk = sum((s.stat().st_size if s.is_file() else 0) + part_bytes(s.with_name(s.name + ".part"))
+                  for s in shards) / 1e9
     to_fetch = 0 if a.gguf_dir or have_model else max(MODELS[model]["download_gb"] - on_disk, 0)
     need = disk_need_gb(family, model, avx512, vision, low_ram, to_fetch)
     if free_gb(models_dir) < need:
