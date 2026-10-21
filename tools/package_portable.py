@@ -126,6 +126,9 @@ def build(system: str, out: Path, given: str | None) -> Path:
         t.extractall(stage, filter="data") if hasattr(tarfile, "data_filter") else t.extractall(stage)
     py = stage / "python" / ("python.exe" if system == "windows" else "bin/python3")
     reqs = requirement_lines()
+    if system == "windows":                            # llama.cpp's Windows builds need it and a PC may not have it
+        import setup
+        reqs += setup.MSVC_WHEELS
     req_file = out / "requirements-runtime.txt"
     req_file.write_text("".join(r + "\n" for r in reqs), encoding="utf-8")
     print("installing requirements.txt (less cmake, ninja) into the package's Python", flush=True)

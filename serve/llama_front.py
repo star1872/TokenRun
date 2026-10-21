@@ -539,10 +539,9 @@ def main(argv=None) -> int:
     cfg = json.loads(cfg_path.read_text(encoding="utf-8-sig"))
     if cfg.get("backend") != "llamacpp":
         ap.error(f"{cfg_path.name} is not a llama.cpp run config (\"backend\": \"llamacpp\")")
-    if cfg.get("llama_build"):                       # written by setup for an older pinned build: move it up once
-        from serve import llama_models
-        if cfg["llama_build"] != llama_models.LLAMA_BUILD:
-            cfg = llama_models.refresh_config(cfg_path)
+    if cfg.get("llama_build"):                       # written by setup: an older pinned build is moved up once, and on
+        from serve import llama_models               # Windows the C++ runtime is put beside llama-server if missing
+        cfg = llama_models.refresh_config(cfg_path)
     host =a.host or cfg.get("host") or "127.0.0.1"
     port = a.port or int(cfg.get("port") or 8080)
     try:

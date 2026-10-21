@@ -81,6 +81,7 @@ class Engine(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d, mock.patch.object(LM, "ROOT", Path(d)), \
                 mock.patch.object(LM.S, "reachable", lambda *a, **k: self.fail("asked the network")), \
                 mock.patch.object(LM.S, "download", lambda *a, **k: self.fail("downloaded")), \
+                mock.patch.object(LM, "vc_runtime", lambda dest: []), \
                 mock.patch.object(LM.S, "ok", lambda *a: None), mock.patch.object(LM.S, "say", lambda *a: None):
             folder = LM.engine_dir("cpu", "b1")
             folder.mkdir(parents=True)
@@ -205,6 +206,25 @@ class Names(unittest.TestCase):
         hf = [{"id": "a/X-GGUF", "downloads": 10}, {"id": "b/X-GGUF", "downloads": 20}]
         with mock.patch.object(LM.QS, "http", lambda url: json.dumps(hf).encode()):
             self.assertEqual([x["repo"] for x in LM.search("X", "huggingface")], ["b/X-GGUF", "a/X-GGUF"])
+
+
+class VcRuntime(unittest.TestCase):
+    def test_copied_beside_the_server_from_the_wheel(self):
+        with tempfile.TemporaryDirectory() as d:
+            prefix, dest = Path(d) / "py", Path(d) / "engine"
+            (prefix / "Scripts").mkdir(parents=True)
+            dest.mkdir()
+            for n in LM.MSVC_DLLS:
+                (prefix / "Scripts" / n).write_bytes(b"dll")
+            (dest / "vcruntime140.dll").write_bytes(b"own")      # one already there is kept
+            with mock.patch.object(LM, "WIN", True), mock.patch.object(LM.sys, "prefix", str(prefix)),                     mock.patch.object(LM.sys, "base_prefix", str(prefix)),                     mock.patch.object(LM.S, "pip_install", side_effect=AssertionError("no pip needed")):
+                self.assertEqual(LM.vc_runtime(dest), ["msvcp140.dll", "vcruntime140_1.dll"])
+                self.assertEqual((dest / "vcruntime140.dll").read_bytes(), b"own")
+                self.assertEqual(LM.vc_runtime(dest), [])
+
+    def test_not_on_linux(self):
+        with mock.patch.object(LM, "WIN", False):
+            self.assertEqual(LM.vc_runtime(Path("/nowhere")), [])
 
 
 class Installed(unittest.TestCase):

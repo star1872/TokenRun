@@ -107,6 +107,36 @@ def gather_runtime(folder: Path, dest: Path) -> list[str]:
     return moved
 
 
+MSVC_DLLS = ("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll")
+
+
+def vc_runtime(dest: Path) -> list[str]:
+    """Windows: Microsoft's C++ runtime beside llama-server.  ggml-org's Windows builds import it from the system, and
+    a PC without the Visual C++ Redistributable stops with "VCRUNTIME140.dll was not found" (a user's PC, 2026-10-20).
+    The msvc-runtime wheel (in the Windows package's Python; else installed here) has all three, one version, in
+    Scripts/; a DLL beside the exe is the one Windows loads."""
+    def source(name: str) -> Path | None:
+        for base in dict.fromkeys((Path(sys.prefix), Path(sys.base_prefix))):
+            for p in (base / "Scripts" / name, base / name):
+                if p.is_file():
+                    return p
+        return None
+    if not WIN or all((dest / n).exists() for n in MSVC_DLLS):
+        return []
+    if any(source(n) is None or source(n).parent.name != "Scripts" for n in MSVC_DLLS):
+        S.pip_install(S.MSVC_WHEELS, "Microsoft's C++ runtime for llama.cpp")
+    copied = []
+    for n in MSVC_DLLS:
+        src = source(n)
+        if src is None:
+            S.fail(f"{n} is missing: llama.cpp cannot start without Microsoft's C++ runtime",
+                   "install the Visual C++ Redistributable (https://aka.ms/vs/17/release/vc_redist.x64.exe) and run it again")
+        if not (dest / n).exists():
+            shutil.copy2(src, dest / n)
+            copied.append(n)
+    return copied
+
+
 def asset_urls(asset: str, build: str = LLAMA_BUILD) -> list[str]:
     """Where a release file comes from: the copy on ModelScope first when ModelScope is the source (mainland China
     reaches it when GitHub's downloads do not), then GitHub."""
@@ -121,6 +151,7 @@ def get_engine(gpus: list[dict], build: str = LLAMA_BUILD) -> Path:
     folder = engine_dir(kind, build)
     have = find_server(folder) if folder.exists() else None
     if have and (folder / ".done").exists():
+        vc_runtime(have.parent)                        # an engine installed before the runtime was put beside it
         S.ok(f"llama.cpp {build} ({kind}) already installed")
         return have
     folder.mkdir(parents=True, exist_ok=True)
@@ -150,6 +181,7 @@ def get_engine(gpus: list[dict], build: str = LLAMA_BUILD) -> Path:
     if exe is None:
         S.fail(f"the llama.cpp archive has no {SERVER_EXE}", "run it again; if it repeats, report it")
     gather_runtime(folder, exe.parent)
+    vc_runtime(exe.parent)
     if not WIN:
         for p in exe.parent.iterdir():
             if p.is_file() and (p.name.startswith("llama-") or p.suffix == ""):
@@ -200,6 +232,11 @@ def refresh_config(path: Path) -> dict:
     flags added by hand stay; when anything fails the config is left as it was."""
     cfg = json.loads(path.read_text(encoding="utf-8-sig"))
     if cfg.get("llama_build") == LLAMA_BUILD:
+        if WIN and cfg.get("exe"):                     # installed before the C++ runtime was put beside llama-server
+            try:
+                vc_runtime(Path(cfg["exe"]).parent)
+            except (Exception, SystemExit) as e:
+                S.warn(f"Microsoft's C++ runtime: {e}")
         return cfg
     try:
         gpus = gpus_here()
