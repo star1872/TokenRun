@@ -188,10 +188,23 @@ class Names(unittest.TestCase):
 
     def test_variants_group_shards_and_skip_projectors(self):
         files = [LM.QS.Source(n, s) for n, s in (("BF16/M-BF16-00001-of-00002.gguf", 5e9), ("BF16/M-BF16-00002-of-00002.gguf", 5e9),
-                                                 ("M-Q4_K_M.gguf", 3e9), ("mmproj-F16.gguf", 1e9), ("README.md", 1))]
+                                                 ("M-Q4_K_M.gguf", 3e9), ("mmproj-F16.gguf", 1e9), ("README.md", 1),
+                                                 ("imatrix_unsloth.gguf", 1e7), ("mtp-M-Q4_0.gguf", 1e9))]
         with mock.patch.object(LM, "hub_files", lambda repo, source: files):
             vs = LM.variants("o/M-GGUF", "modelscope")
         self.assertEqual([(v["label"], len(v["files"]), v["gb"]) for v in vs], [("M-Q4_K_M", 1, 3.0), ("M-BF16", 2, 10.0)])
+
+    def test_search_keeps_gguf_and_puts_known_publishers_first(self):
+        # the shapes of ModelScope's /openapi/v1/models and Hugging Face's /api/models (checked 2026-10-20)
+        ms = {"data": {"models": [{"id": "someone/Qwen3.8-27B-GGUF", "downloads": 900, "tags": ["library:gguf"]},
+                                  {"id": "Qwen/Qwen3.8-27B-FP8", "downloads": 5000, "tags": []},
+                                  {"id": "unsloth/Qwen3.8-27B-GGUF", "downloads": 400, "tags": ["library:gguf"]}]}}
+        with mock.patch.object(LM.QS, "http", lambda url: json.dumps(ms).encode()):
+            self.assertEqual([x["repo"] for x in LM.search("Qwen3.8-27B", "modelscope")],
+                             ["unsloth/Qwen3.8-27B-GGUF", "someone/Qwen3.8-27B-GGUF"])
+        hf = [{"id": "a/X-GGUF", "downloads": 10}, {"id": "b/X-GGUF", "downloads": 20}]
+        with mock.patch.object(LM.QS, "http", lambda url: json.dumps(hf).encode()):
+            self.assertEqual([x["repo"] for x in LM.search("X", "huggingface")], ["b/X-GGUF", "a/X-GGUF"])
 
 
 class Installed(unittest.TestCase):
@@ -213,6 +226,8 @@ class Manager(unittest.TestCase):
         code, _ = W.api("POST", "/manage/api/llama/install", json.dumps({"repo": "o/r", "variant": "v\n--x"}).encode())
         self.assertEqual(code, 400)
         code, _ = W.api("GET", "/manage/api/llama/variants?repo=..%2Fx", None)
+        self.assertEqual(code, 400)
+        code, _ = W.api("GET", "/manage/api/llama/search?q=", None)
         self.assertEqual(code, 400)
 
     def test_install_runs_the_installer(self):

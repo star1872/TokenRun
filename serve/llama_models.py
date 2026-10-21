@@ -229,10 +229,11 @@ def hub_files(repo: str, source: str) -> list:
 
 
 def variants(repo: str, source: str) -> list[dict]:
-    """The GGUF variants of a repository: name, GB, its files (shards together; projector files apart)."""
+    """The GGUF variants of a repository: name, GB, its files (shards together; projector, imatrix and MTP files apart)."""
     groups: dict[str, list] = {}
     for f in hub_files(repo, source):
-        if f.name.endswith(".gguf") and "mmproj" not in f.name.lower():
+        base = f.name.rsplit("/", 1)[-1].lower()     # not models of their own: projectors, imatrix data, MTP draft heads
+        if f.name.endswith(".gguf") and "mmproj" not in base and "imatrix" not in base and not base.startswith("mtp-"):
             groups.setdefault(QS.variant_of(f.name), []).append(f)
     out = []
     for name, fs in groups.items():
@@ -240,6 +241,27 @@ def variants(repo: str, source: str) -> list[dict]:
         out.append({"name": name, "label": name.rsplit("/", 1)[-1], "gb": round(sum(f.size for f in fs) / 1e9, 2),
                     "files": [{"path": f.name, "size": f.size} for f in fs]})
     return sorted(out, key=lambda v: v["gb"])
+
+
+# publishers whose GGUF files follow llama.cpp closely: listed first in a search, before more downloaded fine-tunes
+KNOWN_PUBLISHERS = ("unsloth", "ggml-org", "Qwen", "lmstudio-community", "bartowski", "google", "openai", "zai-org")
+
+
+def search(query: str, source: str, limit: int = 20) -> list[dict]:
+    """GGUF repositories whose name matches `query` (a model name such as "Qwen3.8-27B"): repo, downloads, known."""
+    from urllib.parse import quote
+    q = quote(query)
+    if source == "modelscope":
+        data = json.loads(QS.http(f"{S.ms_endpoint()}/openapi/v1/models?search={q}&page_size=50&sort=downloads"))
+        found = [(m["id"], int(m.get("downloads") or 0)) for m in data["data"]["models"]
+                 if "library:gguf" in m.get("tags", []) or "gguf" in m["id"].lower()]
+    else:
+        base = (os.environ.get("HF_ENDPOINT") or "https://huggingface.co").rstrip("/")
+        data = json.loads(QS.http(f"{base}/api/models?search={q}&filter=gguf&sort=downloads&limit=100"))
+        found = [(m["id"], int(m.get("downloads") or 0)) for m in data]
+    out = [{"repo": r, "downloads": d, "known": r.split("/", 1)[0] in KNOWN_PUBLISHERS} for r, d in found]
+    out.sort(key=lambda x: (not x["known"], -x["downloads"]))
+    return out[:limit]
 
 
 def fit(gb: float, ram_gb: float, vram_gb: float) -> dict:

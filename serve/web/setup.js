@@ -379,9 +379,34 @@ async function loadLlama() {
     `<div class="muted small">${esc(c.repo || "")} · ${esc(fmt(c.gb, 1))} GB</div></div>` +
     `<div class="size__side"><span class="st-badge st-badge--reading">${esc(t("Installed"))}</span><button class="st-btn st-btn--primary" data-start="llama/${esc(k)}">${esc(t("Start"))}</button></div></div>`).join("") + `</div>` : "";
 }
+// what the box takes: owner/name, ms:/hf: owner/name, a ModelScope or Hugging Face page URL, or a model name to search for
+const REPO_NAME = /^[A-Za-z0-9][\w.-]*\/[A-Za-z0-9][\w.-]*$/;
+function repoOf(text) {
+  text = text.trim().replace(/^(ms|hf):/, "");
+  const m = text.match(/^https?:\/\/[^/]+\/(?:models\/)?([^/?#]+\/[^/?#]+)/);
+  return m ? m[1] : text;
+}
+async function searchRepos(query) {
+  const box = $("ll-variants");
+  box.innerHTML = `<p class="muted">${esc(t("Searching for {q}…", {q: query}))}</p>`;
+  $("ll-go").disabled = true;
+  try {
+    const r = await api(`api/llama/search?q=${encodeURIComponent(query)}&source=${encodeURIComponent(pickSource())}`);
+    if (!r.repos.length) { box.innerHTML = `<p class="msg-error">${esc(t("No GGUF repository found for {q}. Check the name, or type a repository as owner/name.", {q: query}))}</p>`; return; }
+    box.innerHTML = `<div class="fam"><div class="fam__head"><b>${esc(t("GGUF repositories for {q}", {q: query}))}</b><span class="muted small">${esc(t(r.source === "modelscope" ? "from ModelScope" : "from Hugging Face"))}</span></div>` +
+      `<p class="muted small">${esc(t("Choose one to list its versions. Common publishers first, then by downloads."))}</p>` +
+      r.repos.map((x) => `<div class="size"><div class="size__main"><div class="size__name"><button type="button" class="link" data-repo="${esc(x.repo)}"><b>${esc(x.repo)}</b></button></div>` +
+        `<div class="size__nums small">${esc(t("{n} downloads", {n: x.downloads.toLocaleString()}))}</div></div>` +
+        `<div class="size__side">${x.known ? `<span class="st-badge st-badge--reading">${esc(t("Common publisher"))}</span>` : ""}` +
+        `<button class="st-btn st-btn--secondary" data-repo="${esc(x.repo)}">${esc(t("List the versions"))}</button></div></div>`).join("") + `</div>`;
+  } catch (err) {
+    box.innerHTML = `<p class="msg-error">${esc(t("Could not search: {e}", {e: err.message}))}</p>`;
+  } finally { $("ll-go").disabled = false; }
+}
 async function listVariants(repo) {
-  llRepo = repo.trim();
+  llRepo = repoOf(repo);
   if (!llRepo) return;
+  if (!REPO_NAME.test(llRepo)) { const q = llRepo; llRepo = ""; return searchRepos(q); }
   $("ll-repo").value = llRepo;
   const box = $("ll-variants");
   box.innerHTML = `<p class="muted">${esc(t("Reading the repository…"))}</p>`;
@@ -409,6 +434,8 @@ $("ll-go").onclick = () => listVariants($("ll-repo").value);
 $("ll-repo").addEventListener("keydown", (e) => { if (e.key === "Enter") listVariants($("ll-repo").value); });
 $("ll-suggest").addEventListener("click", (e) => { const b = e.target.closest("[data-repo]"); if (b) listVariants(b.dataset.repo); });
 $("ll-variants").addEventListener("click", async (e) => {
+  const pick = e.target.closest("[data-repo]");
+  if (pick) return listVariants(pick.dataset.repo);
   const b = e.target.closest("[data-ll-install]");
   if (!b) return;
   const v = llVariants[+b.dataset.llInstall];

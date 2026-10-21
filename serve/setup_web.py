@@ -438,6 +438,13 @@ def api(method: str, url: str, raw: bytes | None, embedded: bool = False) -> tup
                 from urllib.parse import unquote
                 return 200, llama_variants(unquote(q.get("repo", "")).strip(), unquote(q.get("source", "auto")),
                                            unquote(q.get("dir", "")) or None)
+            if what == "llama/search":                   # a model name instead of owner/name: its GGUF repositories
+                from urllib.parse import unquote
+                query, source = unquote(q.get("q", "")).strip(), unquote(q.get("source", "auto"))
+                if not query or len(query) > 100 or source not in S.SOURCES:
+                    raise ValueError("a model name to search for")
+                src = S.model_source() if source == "auto" else source
+                return 200, {"query": query, "source": src, "repos": llama().search(query, src)}
             if what == "folder":
                 from urllib.parse import unquote
                 return 200, folder_info(unquote(q.get("path", "")) or None)
