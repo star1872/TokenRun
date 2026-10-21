@@ -159,6 +159,7 @@ class MoeCache(unittest.TestCase):
             gpus = [{"name": "RTX 4060 Ti", "vram_gb": 16, "driver": "580.1", "vendor": "nvidia"}]
             with mock.patch.object(LM, "gpus_here", lambda: gpus), \
                     mock.patch.object(LM, "get_engine", lambda g: Path("new/llama-server")), \
+                    mock.patch.object(LM, "vc_runtime", lambda dest: []), \
                     mock.patch.object(LM, "expert_gb", lambda files: 21.0 if len(files) == 2 else 0):
                 cfg = LM.refresh_config(p)
                 self.assertEqual(cfg["args"], ["-c", "65536", "--fit", "on", "-t", "8", "--moe-cache-mib", "8192"])
@@ -190,7 +191,8 @@ class Names(unittest.TestCase):
     def test_variants_group_shards_and_skip_projectors(self):
         files = [LM.QS.Source(n, s) for n, s in (("BF16/M-BF16-00001-of-00002.gguf", 5e9), ("BF16/M-BF16-00002-of-00002.gguf", 5e9),
                                                  ("M-Q4_K_M.gguf", 3e9), ("mmproj-F16.gguf", 1e9), ("README.md", 1),
-                                                 ("imatrix_unsloth.gguf", 1e7), ("mtp-M-Q4_0.gguf", 1e9))]
+                                                 ("imatrix_unsloth.gguf", 1e7), ("mtp-M-Q4_0.gguf", 1e9),
+                                                 ("dspark-M-Q8_0.gguf", 1e10))]
         with mock.patch.object(LM, "hub_files", lambda repo, source: files):
             vs = LM.variants("o/M-GGUF", "modelscope")
         self.assertEqual([(v["label"], len(v["files"]), v["gb"]) for v in vs], [("M-Q4_K_M", 1, 3.0), ("M-BF16", 2, 10.0)])

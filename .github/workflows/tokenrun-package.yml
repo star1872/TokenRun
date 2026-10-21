@@ -37,6 +37,7 @@ jobs:
 
   publish:
     needs: [windows, linux]
+    if: github.ref == 'refs/heads/main'             # another branch: the packages as artifacts only, to test first
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4

@@ -10,6 +10,7 @@ import json
 import sys
 import threading
 import unittest
+from unittest import mock
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -134,6 +135,32 @@ class Prepare(unittest.TestCase):
     def test_a_stream_asks_for_usage(self):
         r = self.front.prepare("/v1/chat/completions", {"stream": True})
         self.assertEqual(r["stream_options"], {"include_usage": True})
+
+
+class LiveRate(unittest.TestCase):
+    def test_the_real_rate_not_capped(self):
+        """64 one-token samples over 4 s capped the header's rate at 16 tok/s (2026-10-21)."""
+        front = LF.Front(StubLlama(1), "m")
+        clock = [1000.0]
+        with mock.patch.object(LF.time, "time", lambda: clock[0]):
+            rid = front.begin(None)
+            for _ in range(300):                         # 50 tok/s for 6 s
+                front.token(rid)
+                clock[0] += 0.02
+            self.assertAlmostEqual(front.tok_s(), 50.0, delta=1.0)
+            self.assertLessEqual(len(front.rate), 201)   # only the last window is kept
+
+    def test_right_after_the_first_token(self):
+        front = LF.Front(StubLlama(1), "m")
+        clock = [1000.0]
+        with mock.patch.object(LF.time, "time", lambda: clock[0]):
+            rid = front.begin(None)
+            for _ in range(40):                          # 40 tok/s for 1 s: not divided by the whole 4 s window
+                front.token(rid)
+                clock[0] += 0.025
+            self.assertAlmostEqual(front.tok_s(), 40.0, delta=1.5)
+            front.finish(rid, "stop", None, None)
+            self.assertEqual(front.tok_s(), 0.0)
 
 
 class PassThrough(Base):

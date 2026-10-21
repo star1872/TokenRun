@@ -35,17 +35,17 @@ SERVER_EXE = "llama-server.exe" if WIN else "llama-server"
 CUDA13_DRIVER = 580                                     # CUDA 13 needs an NVIDIA driver 580 or newer
 
 # a starting list for the model manager; any other GGUF repository can be typed in.  All checked on ModelScope
-# (2026-10-07) with these names; the sizes are their smallest-largest variants.
+# (2026-10-21) with these names; the sizes are their smallest-largest variants.  Qwen3.8-Flash-Next is not here: Strata
+# runs it (llmserver: 43 tok/s against 8 with llama.cpp).
 SUGGESTED = [
-    ("unsloth/Qwen3.6-35B-A3B-GGUF", "Qwen3.6 35B-A3B", "MoE, 3B active: fast with experts in RAM; 10-32 GB"),
-    ("unsloth/Qwen3.6-27B-GGUF", "Qwen3.6 27B", "dense: best on a GPU that holds it; 9-35 GB"),
-    ("unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF", "Qwen3 Coder 30B-A3B", "code and tools, MoE; 8-36 GB"),
-    ("unsloth/gemma-4-26B-A4B-it-GGUF", "Gemma 4 26B-A4B", "Google, MoE; 10-23 GB"),
+    ("unsloth/Qwen3.8-27B-GGUF", "Qwen3.8 27B", "dense: best on a GPU that holds it; 6-55 GB"),
+    ("unsloth/gemma-4-26B-A4B-it-GGUF", "Gemma 4 26B-A4B", "Google, MoE, 4B active: fast with experts in RAM; 10-51 GB"),
+    ("unsloth/gemma-4-31B-it-GGUF", "Gemma 4 31B", "Google, dense; 9-61 GB"),
     ("unsloth/gpt-oss-20b-GGUF", "gpt-oss 20B", "OpenAI, MoE; 11-14 GB"),
     ("unsloth/gpt-oss-120b-GGUF", "gpt-oss 120B", "OpenAI, MoE, 64 GB+ PCs; 63-65 GB"),
-    ("unsloth/Qwen3-Next-80B-A3B-Instruct-GGUF", "Qwen3-Next 80B-A3B", "MoE, 64 GB PCs; 20-159 GB"),
-    ("unsloth/GLM-4.5-Air-GGUF", "GLM-4.5-Air", "Zhipu, MoE, 64-96 GB PCs; 38-128 GB"),
-    ("Qwen/Qwen3-8B-GGUF", "Qwen3 8B", "small and quick, for any GPU; 5-9 GB"),
+    ("unsloth/DeepSeek-V4-Flash-0731-GGUF", "DeepSeek V4 Flash", "MoE, 96-192 GB PCs; 83-162 GB"),
+    ("unsloth/gemma-4-12b-it-GGUF", "Gemma 4 12B", "small, for 8-12 GB GPUs; 4-24 GB"),
+    ("unsloth/gemma-4-E4B-it-GGUF", "Gemma 4 E4B", "small and quick, for any GPU; 4-15 GB"),
 ]
 RAM_LEFT_GB = 6                                         # the OS and the server beside the model's weights in RAM
 VRAM_LEFT_GB = 1.5                                      # the KV cache and compute buffers beside its weights in VRAM
@@ -266,11 +266,11 @@ def hub_files(repo: str, source: str) -> list:
 
 
 def variants(repo: str, source: str) -> list[dict]:
-    """The GGUF variants of a repository: name, GB, its files (shards together; projector, imatrix and MTP files apart)."""
+    """The GGUF variants of a repository: name, GB, its files (shards together; projector, imatrix and draft files apart)."""
     groups: dict[str, list] = {}
     for f in hub_files(repo, source):
-        base = f.name.rsplit("/", 1)[-1].lower()     # not models of their own: projectors, imatrix data, MTP draft heads
-        if f.name.endswith(".gguf") and "mmproj" not in base and "imatrix" not in base and not base.startswith("mtp-"):
+        base = f.name.rsplit("/", 1)[-1].lower()     # not models of their own: projectors, imatrix data, draft models
+        if f.name.endswith(".gguf") and "mmproj" not in base and "imatrix" not in base                 and not base.startswith(("mtp-", "dspark-")):
             groups.setdefault(QS.variant_of(f.name), []).append(f)
     out = []
     for name, fs in groups.items():

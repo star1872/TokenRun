@@ -46,6 +46,7 @@ from serve.winjob import contain  # noqa: E402
 
 WEB = ROOT / "serve" / "web"
 RATE_WINDOW_S = 4.0
+RATE_MIN_SPAN_S = 0.5                                   # the live rate right after the first token: at least this span
 # the request fields the web app's Chat settings fill when a client leaves them out (POST /settings)
 SHARED_TO_REQUEST = ("temperature", "top_p", "top_k", "seed", "max_tokens")
 PASS_HEADERS = ("Content-Type", "Cache-Control")
@@ -152,7 +153,9 @@ class Front:
         self.status_lock = threading.Lock()
         self.live: dict[int, dict] = {}                 # request id -> its state while it runs
         self.next_id = 0
-        self.rate = collections.deque(maxlen=64)        # (time, tokens) of the streaming answers
+        # (time, tokens) of the streaming answers in the last RATE_WINDOW_S.  Not a fixed length: 64 entries of one
+        # token each capped the live rate at 64 / 4 s = 16 tok/s whatever the real speed (a user's PC, 2026-10-21)
+        self.rate = collections.deque()
         self.history = collections.deque(maxlen=500)
         self.totals = {"since": time.time(), "requests": 0, "prompt_tokens": 0, "reused": 0, "output_tokens": 0,
                        "prompt_ms": 0.0, "decode_ms": 0.0, "drafts_offered": 0, "drafts_accepted": 0}
@@ -189,6 +192,8 @@ class Front:
                 s["first_token"] = now
             s["generated"] += n
             self.rate.append((now, n))
+            while now - self.rate[0][0] > RATE_WINDOW_S:
+                self.rate.popleft()
 
     def finish(self, rid: int, finish: str, usage: dict | None, timings: dict | None) -> None:
         with self.status_lock:
@@ -220,11 +225,15 @@ class Front:
             tt["drafts_accepted"] += t.get("draft_n_accepted") or 0
 
     def tok_s(self) -> float:
+        """Tokens of the last RATE_WINDOW_S seconds over that span - or over the time since the first token, when the
+        answers began less than RATE_WINDOW_S ago.  With parallel requests: the sum of theirs."""
         now = time.time()
         with self.status_lock:
             n = sum(k for at, k in self.rate if now - at <= RATE_WINDOW_S)
-            busy = bool(self.live)
-        return n / RATE_WINDOW_S if busy else 0.0
+            firsts = [s["first_token"] for s in self.live.values() if s["first_token"] is not None]
+        if not firsts:
+            return 0.0
+        return n / min(RATE_WINDOW_S, max(RATE_MIN_SPAN_S, now - min(firsts)))
 
     def metrics(self, all_requests=False) -> dict:
         now = time.time()

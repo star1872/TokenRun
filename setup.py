@@ -220,8 +220,10 @@ MIN_DRIVER = 580                       # CUDA 13.0
 CUDA13_MIN_ARCH = 75                   # the oldest compute capability CUDA 13 compiles for (sm_75, RTX 20)
 CUDA12_ASSET = "strata-windows-x64-cuda12.zip" if WIN else "strata-linux-x64-cuda12.zip"
 # Microsoft's C++ runtime (msvcp140.dll, vcruntime140.dll, vcruntime140_1.dll) for llama.cpp's Windows builds, which take it
-# from the system: a PC without the Visual C++ Redistributable stops at "VCRUNTIME140.dll was not found" (2026-10-20)
-MSVC_WHEELS = ["msvc-runtime==14.44.35112"]
+# from the system: a PC without the Visual C++ Redistributable stops at "VCRUNTIME140.dll was not found" (2026-10-20).
+# 14.42 or newer (programs built with Visual Studio 17.10+ need 14.40+): 14.44 has wheels for Python 3.11+ only, so a
+# setup on Python 3.10 gets 14.42; the Windows package (Python 3.12) carries 14.44.
+MSVC_WHEELS = ["msvc-runtime>=14.42"]
 CUDA12_WHEELS = ["nvidia-cublas-cu12==12.9.1.4", "nvidia-cuda-runtime-cu12==12.9.79"]
 # CUDA 12.x minor-version compatibility (NVIDIA's table: Linux 525.60.13, Windows 527.41); the wheels match the 12.9.1
 # toolkit the CUDA 12 zip is built with (cuBLAS 12.9.1.4, runtime 12.9.79).  Not tested on such an old driver here.

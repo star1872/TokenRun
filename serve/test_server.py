@@ -1315,6 +1315,15 @@ class CancelledRead(unittest.TestCase):
         StrataEngine._parse_done(e, "DONE 0 98179 17565.0 0.0 cancel 0 0 0 0 0 0 0 0.0")
         self.assertNotIn("prompt_read", e.last)
 
+    def test_parse_done_key_value_fields(self):
+        # engine 0.1.45+ ends the line with chunk=N experts_streamed=N, also when the offloaded field is not there
+        e = SimpleNamespace()
+        StrataEngine._parse_done(e, "DONE 12 30 5.0 400.0 stop 3 4 0 7 9 0 0 0.0 30 chunk=2048 experts_streamed=0")
+        self.assertEqual((e.last["generated"], e.last["prompt_read"], e.last["drafts_accepted"]), (12, 30, 3))
+        self.assertNotIn("offloaded", e.last)
+        StrataEngine._parse_done(e, "DONE 12 30 5.0 400.0 stop 3 4 0 7 9 0 0 0.0 30 55 chunk=2048 experts_streamed=0")
+        self.assertEqual(e.last["offloaded"], 55)
+
     def test_prompt_tokens_seen(self):
         last = {"finish": "cancel", "reused": 1000, "prompt_read": 2000}
         self.assertEqual(prompt_tokens_seen(98179, last), 3000)

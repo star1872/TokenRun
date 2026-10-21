@@ -606,7 +606,7 @@ class StrataEngine:
         self.info = {**info, **self.info}
 
     def _parse_done(self, line):
-        f = line.split()
+        f = [x for x in line.split() if "=" not in x]     # engine 0.1.45+ ends the line with chunk=N experts_streamed=N
         self.last = {"generated": int(f[1]), "prompt_tokens": int(f[2]), "prompt_ms": float(f[3]),
                      "decode_ms": float(f[4]), "finish": f[5]}
         if len(f) >= 9:                                   # the conversation cache's fields (engine 0.1.3+)
