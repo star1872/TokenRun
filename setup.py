@@ -112,7 +112,7 @@ def hf_unpinned(url: str) -> str:
 # sizes, and is reachable from mainland China where huggingface.co often is not.  It serves a repository's current
 # files (no pinned revision), so a file from it is checked against the SHA-256 ModelScope publishes for it, and the
 # MTP tensors against the pinned checkpoint's own hashes (tools/mtp_fetch.py).
-# --source / STRATA_SOURCE: auto (the default: Hugging Face when it answers), modelscope or huggingface.
+# --source / STRATA_SOURCE: auto (the default: ModelScope when it answers), modelscope or huggingface.
 MS_DEFAULT = "https://www.modelscope.cn"
 SOURCES = ("auto", "modelscope", "huggingface")
 HF_FILE = re.compile(r"^https?://[^/]+/(?P<repo>[^/]+/[^/]+)/resolve/[^/]+/(?P<path>.+)$")
@@ -141,15 +141,16 @@ HF_PROBE = (HF_DEFAULT + "/ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF/resolve/"
 
 
 def model_source() -> str:
-    """"modelscope" or "huggingface".  --source / STRATA_SOURCE as given; auto: Hugging Face when HF_ENDPOINT names a
-    host (a mirror chosen on purpose, #495) or a model file on huggingface.co answers, else ModelScope when it answers (mainland China,
-    where huggingface.co often does not), else Hugging Face (its error is the one setup shows)."""
+    """"modelscope" or "huggingface".  --source / STRATA_SOURCE as given; auto: ModelScope when it answers, else
+    Hugging Face (through HF_ENDPOINT when set; its error is the one setup shows).  An HF_ENDPOINT alone no longer
+    picks Hugging Face: many PCs in mainland China keep HF_ENDPOINT=https://hf-mirror.com set for other tools, and
+    that mirror is far slower than ModelScope for files this big (measured on llmserver, 2026-10-22)."""
     want = (os.environ.get("STRATA_SOURCE") or "auto").strip().lower()
     key = (want, os.environ.get("HF_ENDPOINT") or "", ms_endpoint())
     if key not in _sources:
         if want in ("ms", "modelscope"):
             _sources[key] = "modelscope"
-        elif want in ("hf", "huggingface") or key[1]:
+        elif want in ("hf", "huggingface"):
             _sources[key] = "huggingface"
         else:                                          # asked once per run
             # this fork: ModelScope first (mainland China), Hugging Face when it does not answer.  A file, as
@@ -3970,9 +3971,9 @@ def main() -> int:
                          "starting the model (UPDATE.bat / update.sh run it after a git pull)")
     ap.add_argument("--build", action="store_true", help="compile the engine instead of using the ready-made one")
     ap.add_argument("--source", choices=SOURCES, default=None,
-                    help="where the model files come from: auto (default: ModelScope, or Hugging Face when "
-                         "ModelScope does not answer; Hugging Face when HF_ENDPOINT is set), modelscope or "
-                         "huggingface (STRATA_SOURCE)")
+                    help="where the model files come from: auto (default: ModelScope, or Hugging Face - through "
+                         "HF_ENDPOINT when set - when ModelScope does not answer), modelscope or huggingface "
+                         "(STRATA_SOURCE)")
     ap.add_argument("--inspect", nargs="+", metavar=("SOURCE", "VARIANT"),
                     help="what a GGUF is and whether Strata runs it, from its headers only (no download): a file, a "
                          "folder, a URL, ms:owner/repo (ModelScope) or hf:owner/repo, and optionally a variant name")
@@ -4017,6 +4018,10 @@ def main() -> int:
                          "sycl = Intel Arc, EXPERIMENTAL: Linux, built from source (docs/INTEL_ARC.md)")
     ap.add_argument("--skip-build", action="store_true", help=argparse.SUPPRESS)
     a = ap.parse_args()
+    if a.model and not a.family:                       # --model UD-IQ4_XS alone: the one family that has it
+        fams = MODELS[a.model].get("families", ("qwen", "swift"))
+        if "qwen" not in fams and len(fams) == 1:
+            a.family = fams[0]
     if a.source:
         os.environ["STRATA_SOURCE"] = a.source
     if a.web:                                          # the model manager page: it runs setup.py for each install

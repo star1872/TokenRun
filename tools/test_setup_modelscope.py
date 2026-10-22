@@ -67,8 +67,16 @@ class Source(Base):
             with mock.patch.object(setup, "reachable", side_effect=answers):
                 self.assertEqual(setup.model_source(), want)
 
-    def test_hf_endpoint_is_a_choice(self):
+    def test_hf_endpoint_alone_keeps_modelscope(self):
+        # HF_ENDPOINT=https://hf-mirror.com set for other tools: ModelScope still comes first, the mirror when it
+        # does not answer (2026-10-22: the mirror crawled at 0.0 MB/s on llmserver where ModelScope gives 11-14)
         os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+        for answers, want in ((True, "modelscope"), (False, "huggingface")):
+            setup._sources.clear()
+            with mock.patch.object(setup, "reachable", return_value=answers):
+                self.assertEqual(setup.model_source(), want)
+        os.environ["STRATA_SOURCE"] = "huggingface"
+        setup._sources.clear()
         with mock.patch.object(setup, "reachable", return_value=True) as r:
             self.assertEqual(setup.model_source(), "huggingface")
             r.assert_not_called()
