@@ -1,7 +1,113 @@
 #!/bin/sh
-# tokenrun - the Linux package's command (install.sh links it into ~/.local/bin): the model manager page,
-# app/serve/setup_web.py, with the Python inside the package.  Options go to the page, e.g.
+# tokenrun - the Linux package's command (install.sh links it into ~/.local/bin), with the Python inside the package.
+#   tokenrun                    the model manager page, app/serve/setup_web.py; its options go to the page, e.g.
 #   tokenrun --host 0.0.0.0     (open it from another PC of a network you trust)
 #   tokenrun --port 8091 --no-browser
+#   tokenrun serve [options]    the API only, no page and no questions: app/setup.py --serve, e.g.
+#   tokenrun serve --model IQ3_S --host 0.0.0.0 --port 8080 --api-key KEY
+#                               (the model is installed first when it is not; the options are kept for next time)
+#   tokenrun service install [serve options]   the same as a system service (systemd): it starts now and at every boot
+#   tokenrun service status|log|stop|start|restart|remove
 here=$(dirname "$(readlink -f "$0")")
+NAME=tokenrun
+UNIT=/etc/systemd/system/$NAME.service
+
+service_usage() {
+    echo "tokenrun service install [serve options]   e.g. tokenrun service install --model IQ3_S --host 0.0.0.0 --port 8080 --api-key KEY"
+    echo "tokenrun service status | log | stop | start | restart | remove"
+}
+
+service_install() {
+    command -v systemctl >/dev/null 2>&1 || { echo "This system has no systemd (systemctl): start it with tokenrun serve instead."; exit 1; }
+    user=${SUDO_USER:-$(id -un)}
+    port=8080
+    host=
+    args=
+    prev=
+    for a in "$@"; do                                # systemd's quoting: "...", with \ " % $ escaped
+        [ "$prev" = --port ] && port=$a
+        [ "$prev" = --host ] && host=$a
+        case "$a" in --port=*) port=${a#--port=} ;; --host=*) host=${a#--host=} ;; esac
+        prev=$a
+        esc=$(printf '%s' "$a" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/%/%%/g' -e 's/\$/$$/g')
+        args="$args \"$esc\""
+    done
+    if [ -e "$UNIT" ]; then
+        echo "Replacing the existing service (its settings change to the ones given now)."
+        sudo systemctl stop "$NAME" || true
+    fi
+    if command -v curl >/dev/null 2>&1 && curl -sf "http://127.0.0.1:$port/health" >/dev/null 2>&1; then
+        echo "Something already answers on port $port (a tokenrun serve started by hand?): stop it first, then run this again."
+        exit 1
+    fi
+    tmp=$(mktemp)
+    cat > "$tmp" <<EOF
+# made by: tokenrun service install$args
+[Unit]
+Description=TokenRun API (port $port)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=$user
+Environment=STRATA_EXECV=1
+ExecStart="$here/tokenrun" serve$args
+Restart=on-failure
+RestartSec=30
+KillMode=mixed
+TimeoutStopSec=60
+LimitMEMLOCK=infinity
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    echo "Writing $UNIT (it runs as $user; administrator rights are needed, sudo may ask for your password)"
+    sudo install -m 600 "$tmp" "$UNIT" || { rm -f "$tmp"; exit 1; }
+    rm -f "$tmp"
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now "$NAME" || { echo "The service did not start: tokenrun service log"; exit 1; }
+    if [ -n "$host" ] && [ "$host" != 127.0.0.1 ] && [ "$host" != localhost ] && command -v ufw >/dev/null 2>&1 &&
+            sudo ufw status 2>/dev/null | grep -q "Status: active"; then
+        sudo ufw allow "$port/tcp" >/dev/null && echo "Firewall (ufw): port $port opened for the other PCs"
+    fi
+    echo "Installed: it starts now and at every boot. Loading takes a few minutes (the first time it also downloads the model)."
+    echo "Waiting for it to be ready (Ctrl+C stops the waiting, not the service)..."
+    i=0
+    while [ $i -lt 60 ]; do
+        if curl -sf "http://127.0.0.1:$port/health" >/dev/null 2>&1; then
+            echo "Ready: http://127.0.0.1:$port/v1"
+            if [ -n "$host" ] && [ "$host" != 127.0.0.1 ] && [ "$host" != localhost ]; then
+                for ip in $(hostname -I 2>/dev/null); do
+                    case "$ip" in *:*) ;; *) echo "  from other PCs: http://$ip:$port/v1" ;; esac
+                done
+            fi
+            return 0
+        fi
+        systemctl is-active --quiet "$NAME" || [ "$(systemctl show -p SubState --value "$NAME")" = auto-restart ] ||
+            { echo "The service stopped: tokenrun service log"; exit 1; }
+        sleep 10
+        i=$((i + 1))
+    done
+    echo "Not ready after 10 minutes - still loading or downloading. Follow it with: tokenrun service log"
+}
+
+if [ "${1:-}" = service ]; then
+    shift
+    case "${1:-}" in
+        install) shift; service_install "$@" ;;
+        remove|uninstall)
+            sudo systemctl disable --now "$NAME" 2>/dev/null
+            sudo rm -f "$UNIT" && sudo systemctl daemon-reload && echo "The service is removed (the models and TokenRun stay)." ;;
+        status) exec systemctl status "$NAME" ;;
+        log|logs) exec journalctl -u "$NAME" -f ;;
+        start|stop|restart) exec sudo systemctl "$1" "$NAME" ;;
+        *) service_usage; exit 1 ;;
+    esac
+    exit $?
+fi
+if [ "${1:-}" = serve ]; then
+    shift
+    exec "$here/python/bin/python3" "$here/app/setup.py" --serve "$@"
+fi
 exec "$here/python/bin/python3" "$here/app/serve/setup_web.py" "$@"

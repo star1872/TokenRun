@@ -3914,7 +3914,7 @@ def sycl_setup(argv) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--family", choices=list(FAMILIES), help="qwen = Qwen3.8-Flash-Next, swift = Swift 1.5")
-    ap.add_argument("--model", choices=list(MODELS))
+    ap.add_argument("--model", choices=list(MODELS), type=str.upper)
     ap.add_argument("--context", type=int)
     ap.add_argument("--rope-scaling", choices=["none", "linear", "yarn"],
                     help="the RoPE extension for a context past the model's trained 262144: linear (position "
@@ -3962,6 +3962,9 @@ def main() -> int:
     ap.add_argument("--yes", action="store_true", help="accept the recommended answers")
     ap.add_argument("--setup", action="store_true", help="install another model or change settings")
     ap.add_argument("--no-start", action="store_true", help="install only, do not start the model")
+    ap.add_argument("--serve", action="store_true",
+                    help="`tokenrun serve`: start the API with no browser and no questions - the installed model "
+                         "given with --model (else the last one used), installed first when it is not")
     ap.add_argument("--update", action="store_true",
                     help="update the installed engine, Python packages and model settings as a start would, without "
                          "starting the model (UPDATE.bat / update.sh run it after a git pull)")
@@ -4079,6 +4082,18 @@ def main() -> int:
     # choice, and asked once when the PC has cards that could share the model
     run_gpu = start_gpus(a.gpus) or a.gpu
     port = a.port or 8080                              # a new install's port (issue #32: --port for an existing one)
+    if a.serve:                                        # `tokenrun serve`: no browser, no questions
+        a.browser, a.yes = False, True
+        pick = [c for c in have if (not a.model or choices_from_config(c)["model"] == a.model)
+                and (not a.family or choices_from_config(c)["family"] == a.family)]
+        if pick and not (a.setup or a.check or a.no_start):
+            if not a.build:
+                update_installed_engine(a.prebuilt)
+            return start(pick[0], a.port, run_gpu, open_browser=False, yes=True, layer_split=a.layer_split,
+                         keep={"host": a.host, "api_key": a.api_key, "port": a.port, "draft_vocab": a.draft_vocab,
+                               "vram_reserve_mib": a.vram_reserve_mib})
+        if a.model and not (a.check or a.no_start):    # not installed yet: the install below, then the start
+            say(f"  {a.model} is not installed yet: installing it first (the recommended answers), then the API starts.")
     if have and a.calibrate and not (a.setup or a.model or a.family or a.check):
         if not a.build:
             update_installed_engine(a.prebuilt)

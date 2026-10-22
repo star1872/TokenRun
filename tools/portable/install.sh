@@ -4,6 +4,8 @@
 # It downloads TokenRun-linux-x64.tar.gz (ModelScope first - mainland China reaches it - then GitHub), puts it in
 # ~/.local/share/tokenrun (or $TOKENRUN_HOME) and links the `tokenrun` command into ~/.local/bin.  Running it again
 # updates the program; the models (Strata-data) and the engines already downloaded are kept.
+# Another folder:          curl -fsSL .../install.sh | sh -s -- --dir /data/TokenRun
+# Here, like a git clone:  curl -fsSL .../install.sh | sh -s -- --here      (./TokenRun)
 set -eu
 NAME=TokenRun-linux-x64.tar.gz
 URLS="${TOKENRUN_URL:-}
@@ -13,6 +15,21 @@ DEST="${TOKENRUN_HOME:-$HOME/.local/share/tokenrun}"
 BIN="$HOME/.local/bin"
 
 say() { printf '%s\n' "$*"; }
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --dir) [ $# -ge 2 ] || { say "--dir needs a folder, e.g. --dir /data/TokenRun"; exit 1; }
+               DEST=$2; shift 2 ;;
+        --dir=*) DEST=${1#--dir=}; shift ;;
+        --here) DEST=$PWD/TokenRun; shift ;;
+        *) say "Unknown option: $1 (options: --dir FOLDER, --here)"; exit 1 ;;
+    esac
+done
+case "$DEST" in /*) ;; *) DEST=$PWD/$DEST ;; esac
+# the update below replaces DEST's python/ and app/: never in a folder that is not TokenRun's
+if [ -d "$DEST" ] && [ -n "$(ls -A "$DEST" 2>/dev/null)" ] && [ ! -e "$DEST/tokenrun" ]; then
+    say "$DEST is not empty and is not a TokenRun folder: choose an empty or new one (e.g. --dir $DEST/TokenRun)."
+    exit 1
+fi
 if [ "$(uname -s)" != Linux ] || [ "$(uname -m)" != x86_64 ]; then
     say "TokenRun's ready-made package is for Linux on x86_64 (this is $(uname -s) $(uname -m))."
     say "From the source instead: git clone https://github.com/star1872/TokenRun && cd TokenRun && ./setup.sh"
@@ -52,8 +69,9 @@ ln -sf "$DEST/tokenrun" "$BIN/tokenrun"
 say ""
 say "TokenRun is installed in $DEST"
 case ":$PATH:" in
-    *":$BIN:"*) say "Start it with:  tokenrun" ;;
-    *) say "Start it with:  $BIN/tokenrun"
+    *":$BIN:"*) say "Start it with:  tokenrun        (or: $DEST/tokenrun)" ;;
+    *) say "Start it with:  $BIN/tokenrun    (or: $DEST/tokenrun)"
        say "(or add ~/.local/bin to PATH - log in again, or: export PATH=\"\$HOME/.local/bin:\$PATH\" - then just: tokenrun)" ;;
 esac
 say "On a server without a screen: tokenrun --host 0.0.0.0, then open http://<this server>:8090/ from another PC."
+say "The API only, for other PCs: tokenrun serve --model IQ3_S --host 0.0.0.0 --port 8080 --api-key KEY"

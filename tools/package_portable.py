@@ -53,10 +53,22 @@ Windows: double-click TokenRun.exe. The model manager opens in your browser: pic
 then chat. Closing TokenRun's window stops the page.
 Linux: run ./tokenrun (install.sh links it as `tokenrun`). On a server without a screen: tokenrun --host 0.0.0.0,
 then open http://<this server>:8090/ from another PC.
+Linux, the API only (no page, no questions; other PCs call it, nothing to install there):
+  ./tokenrun serve --model IQ3_S --host 0.0.0.0 --port 8080 --api-key KEY
+  (installs the model first when it is not; next time just: ./tokenrun serve)
+As a system service that also starts at every boot (one command; sudo asks for your password):
+  ./tokenrun service install --model IQ3_S --host 0.0.0.0 --port 8080 --api-key KEY
+  (then: ./tokenrun service status | log | restart | stop | remove)
 
 Windows：双击 TokenRun.exe，浏览器会打开模型管理页：选模型、下载、启动，然后对话。关闭 TokenRun 窗口会停止该页面。
 Linux：运行 ./tokenrun（install.sh 会把它装成 `tokenrun` 命令）。没有屏幕的服务器：tokenrun --host 0.0.0.0，
 再从另一台电脑打开 http://<服务器地址>:8090/。
+Linux 只开 API（不开网页、不提问；局域网其他电脑直接调用，不用装 TokenRun）：
+  ./tokenrun serve --model IQ3_S --host 0.0.0.0 --port 8080 --api-key 密钥
+  （模型没装会先下载安装；参数会记住，下次只要 ./tokenrun serve）
+设成系统服务、开机自动启动（一条命令；sudo 会要密码）：
+  ./tokenrun service install --model IQ3_S --host 0.0.0.0 --port 8080 --api-key 密钥
+  （之后：./tokenrun service status | log | restart | stop | remove）
 
 Models are downloaded into the Strata-data folder beside app/ unless you choose another folder on the page.
 模型默认下载到 app 旁边的 Strata-data 文件夹，也可以在页面上改。
