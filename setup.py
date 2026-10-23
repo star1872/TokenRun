@@ -1200,18 +1200,21 @@ def dl_connections() -> int:
 
 
 def range_total(url: str) -> int:
-    """The file's size when the server answers a byte range (206 with a Content-Range), else 0: no parallel download."""
+    """The file's size when the server answers a byte range (206 with a Content-Range), else 0: no parallel download.
+    -1: the server did not answer at all (a network error, a busy server) - that says nothing about ranges."""
     for attempt in range(3):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "strata-setup", "Range": "bytes=0-0"})
             with urllib.request.urlopen(req, timeout=60) as r:
                 m = re.match(r"bytes 0-0/(\d+)$", r.headers.get("Content-Range") or "")
                 return int(m.group(1)) if r.status == 206 and m else 0
-        except urllib.error.HTTPError:
-            return 0
+        except urllib.error.HTTPError as e:
+            if e.code != 429 and e.code < 500:
+                return 0
+            time.sleep(5)
         except OSError:
             time.sleep(5)
-    return 0
+    return -1
 
 
 def download_parallel(url: str, part: Path, total: int, label: str, n: int) -> None:
@@ -1345,12 +1348,15 @@ def download(url, dst: Path, what=None):
         mark(dst)
         ok(f"{what or dst.name} already downloaded")
         return
-    if dl_connections() > 1 and (not total or total >= DL_PARALLEL_MIN):
+    state = part.with_name(part.name + ".chunks")
+    if (dl_connections() > 1 or state.exists()) and (not total or total >= DL_PARALLEL_MIN):
         size = range_total(url)                        # ModelScope's HEAD has no length; its ranged GET has
+        if size < 0 and state.exists():                # a hiccup must not throw away a parallel download's GBs
+            fail(f"{what or dst.name}: {url.split('/')[2]} does not answer the download's ranged requests now",
+                 "run it again later: the download resumes where it stopped (the finished parts are kept)")
         if size >= DL_PARALLEL_MIN and (not total or size == total):
             download_parallel(url, part, size, what or dst.name, dl_connections())
             return finish_download(part, dst, ms, what)
-    state = part.with_name(part.name + ".chunks")
     if state.exists():                                 # a parallel download this server cannot continue: start over
         state.unlink()
         part.unlink(missing_ok=True)
@@ -4017,6 +4023,7 @@ def main() -> int:
                          "Linux or Windows (chosen by itself when the PC has no NVIDIA card Strata can use), "
                          "sycl = Intel Arc, EXPERIMENTAL: Linux, built from source (docs/INTEL_ARC.md)")
     ap.add_argument("--skip-build", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--serve-address", action="store_true", help=argparse.SUPPRESS)   # `tokenrun service install`
     a = ap.parse_args()
     if a.model and not a.family:                       # --model UD-IQ4_XS alone: the one family that has it
         fams = MODELS[a.model].get("families", ("qwen", "swift"))
@@ -4091,6 +4098,10 @@ def main() -> int:
         a.browser, a.yes = False, True
         pick = [c for c in have if (not a.model or choices_from_config(c)["model"] == a.model)
                 and (not a.family or choices_from_config(c)["family"] == a.family)]
+        if a.serve_address:                            # the port and host this start would use, for the service's
+            ch = choices_from_config(pick[0]) if pick else {}   # name and its wait (it took 8080 for a model on 10000)
+            print(f"SERVE-ADDRESS {a.port or ch.get('port') or port} {a.host or ch.get('host') or ''}", flush=True)
+            return 0
         if pick and not (a.setup or a.check or a.no_start):
             if not a.build:
                 update_installed_engine(a.prebuilt)

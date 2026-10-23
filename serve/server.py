@@ -1929,6 +1929,38 @@ class Service:
                     print(f"[strata] idle unload: {e}", flush=True)
         threading.Thread(target=loop, daemon=True).start()
 
+    engine_watch_s = 10.0                                # how often start_engine_watch() looks at the engine
+
+    def start_engine_watch(self):
+        """Start the engine again as soon as it dies between requests, not at the next request: a service (tokenrun
+        service) otherwise sits with no model for hours and makes its next user wait for the whole load (measured
+        on llmserver: 251 s).  An unloaded model (idle unload, POST /unload, --lazy) stays unloaded; a start that
+        fails (out of RAM, the GPU in use) is tried again after 1, 2, 4 .. 10 min."""
+        if not hasattr(self.engine, "restart"):
+            return
+
+        def down() -> bool:
+            return not (self.loaded() or getattr(self.engine, "unloaded", False) or
+                        getattr(self.engine, "starting", False))
+
+        def loop():
+            wait = self.engine_watch_s
+            while True:
+                time.sleep(wait)
+                if not down() or not self.fifo.acquire(blocking=False):   # a request that holds it loads it itself
+                    continue
+                try:
+                    if down():
+                        self.ensure_loaded()
+                    wait = self.engine_watch_s
+                except Exception as e:                  # noqa: BLE001 - the thread keeps watching
+                    wait = min(max(wait * 2, 60.0), 600.0)
+                    print(f"[strata] the engine could not be started again ({e}); next try in {wait:.0f} s",
+                          flush=True)
+                finally:
+                    self.fifo.release()
+        threading.Thread(target=loop, daemon=True, name="strata-engine-watch").start()
+
     def set_shared(self, defaults) -> dict:
         """The Chat settings every client gets for what it leaves out; {} / None = clients use their own again."""
         self.shared = clean_shared_defaults(defaults)
@@ -4136,6 +4168,7 @@ def main() -> int:
         atexit.register(hub.close)                      # the servers Strata started end with it
     httpd = serve(svc, host=a.host, port=a.port)
     svc.start_idle_unload()
+    svc.start_engine_watch()
     here = "127.0.0.1" if a.host in ("0.0.0.0", "", "::") else a.host
     print(f"ready: http://{here}:{a.port}/v1  (OpenAI: /v1/chat/completions, Anthropic: /v1/messages, "
           f"context {engine.max_context} tokens{', images on' if vision else ''}"

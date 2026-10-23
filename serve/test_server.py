@@ -2015,6 +2015,55 @@ class SharingTheGpu(unittest.TestCase):
         self.assertFalse(self.engine.alive())
         self.assertEqual(self.chat()[0], 200)
 
+    def wait_for(self, cond, timeout=5.0):
+        deadline = time.time() + timeout
+        while not cond() and time.time() < deadline:
+            time.sleep(0.02)
+        return cond()
+
+    def test_engine_watch_starts_a_dead_engine_again(self):
+        self.svc.engine_watch_s = 0.05
+        self.svc.start_engine_watch()
+        self.engine.running = False                                 # died between requests (killed, crashed)
+        self.assertTrue(self.wait_for(lambda: self.engine.starts == 1))
+        self.assertEqual(self.req("/health")[1]["loaded"], True)
+        time.sleep(0.3)
+        self.assertEqual(self.engine.starts, 1)                     # alive again: left alone
+
+    def test_engine_watch_leaves_an_unloaded_model(self):
+        self.svc.engine_watch_s = 0.05
+        self.svc.start_engine_watch()
+        self.assertEqual(self.svc.unload(), "unloaded")
+        time.sleep(0.4)
+        self.assertEqual(self.engine.starts, 0)                     # the next request loads it, as before
+
+    def test_engine_watch_does_not_take_a_requests_turn(self):
+        self.svc.engine_watch_s = 0.05
+        self.svc.start_engine_watch()
+        with self.svc.fifo:                                         # a request holds the FIFO: it loads by itself
+            self.engine.running = False
+            time.sleep(0.4)
+            self.assertEqual(self.engine.starts, 0)
+        self.assertTrue(self.wait_for(lambda: self.engine.starts == 1))
+
+    def test_engine_watch_waits_after_a_failed_start(self):
+        tries = []
+
+        def fail():
+            tries.append(time.time())
+            raise RuntimeError("out of RAM")
+        self.engine.restart = fail
+        self.svc.engine_watch_s = 0.05
+        self.svc.start_engine_watch()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.engine.running = False
+            self.assertTrue(self.wait_for(lambda: tries))
+            time.sleep(0.5)
+        self.assertEqual(len(tries), 1)                             # the next try only after a minute
+        self.assertIn("next try in 60 s", out.getvalue())
+        self.assertFalse(self.svc.fifo.locked())                    # requests still get their turn
+
     def test_min_free_vram_refuses_to_load(self):
         self.svc.min_free_vram_mib = 8000
         self.svc.free_vram_mib = lambda: 2000

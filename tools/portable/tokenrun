@@ -32,6 +32,13 @@ service_install() {
         esc=$(printf '%s' "$a" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/%/%%/g' -e 's/\$/$$/g')
         args="$args \"$esc\""
     done
+    # the port and host the model was set up with when not given here (a model kept on 10000 is not on 8080)
+    addr=$("$here/python/bin/python3" "$here/app/setup.py" --serve "$@" --serve-address 2>/dev/null |
+           sed -n 's/^SERVE-ADDRESS //p' | tail -n 1)
+    if [ -n "$addr" ]; then
+        port=${addr%% *}
+        host=${addr#* }
+    fi
     if [ -e "$UNIT" ]; then
         echo "Replacing the existing service (its settings change to the ones given now)."
         sudo systemctl stop "$NAME" || true
