@@ -240,5 +240,57 @@ class VisionTokens(unittest.TestCase):
         self.assertIn("images are off", out)
 
 
+class CudaLibsRepair(unittest.TestCase):
+    """2026-10-24: install.sh's update deleted the CUDA wheels in python/; a start installs them again."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.eng = self.tmp / "engine"
+        self.eng.mkdir()
+        (self.eng / "BUILD.json").write_text(json.dumps({"archs": [89]}))
+        self.cfg_path = self.tmp / "strata-unsloth-ud-iq4_xs.json"
+        self.libs = self.tmp / "python/lib/python3.12/site-packages/nvidia/cu13/lib"
+
+    def repair(self, cfg, found):
+        self.cfg_path.write_text(json.dumps(cfg))
+        with unittest.mock.patch.object(setup, "pip_cuda_libs") as pip, \
+                unittest.mock.patch.object(setup, "cuda_lib_dirs", return_value=found):
+            new, out = quiet(setup.repair_cuda_libs, self.cfg_path, dict(cfg))
+        return new, out, pip
+
+    def test_gone_folders_are_installed_again(self):
+        cfg = {"exe": str(self.eng / "strata"), "args": [], "lib_dirs": [str(self.libs)]}
+        new, out, pip = self.repair(cfg, [str(self.libs)])
+        pip.assert_called_once_with(13, force=True)
+        self.assertEqual(new["lib_dirs"], [str(self.libs)])
+        self.assertEqual(json.loads(self.cfg_path.read_text())["lib_dirs"], [str(self.libs)])
+        self.assertIn("installing them again", out)
+
+    def test_a_new_python_version_gets_its_own_folder(self):
+        cfg = {"exe": str(self.eng / "strata"), "args": [], "lib_dirs": [str(self.libs)]}
+        other = str(self.tmp / "python/lib/python3.13/site-packages/nvidia/cu13/lib")
+        self.repair(cfg, [other])
+        self.assertEqual(json.loads(self.cfg_path.read_text())["lib_dirs"], [other])
+
+    def test_cuda12_engine(self):
+        eng12 = self.tmp / setup.ENGINE12_DIR
+        eng12.mkdir()
+        (eng12 / "BUILD.json").write_text("{}")
+        cfg = {"exe": str(eng12 / "strata"), "args": [], "lib_dirs": [str(self.libs)], "cuda": 12}
+        _, _, pip = self.repair(cfg, [str(self.libs)])
+        pip.assert_called_once_with(12, force=True)
+
+    def test_left_alone(self):
+        self.libs.mkdir(parents=True)
+        for cfg in ({"exe": str(self.eng / "strata"), "args": [], "lib_dirs": [str(self.libs)]},   # still there
+                    {"exe": str(self.eng / "strata"), "args": [], "lib_dirs": []},                 # none named
+                    {"exe": str(self.eng / "strata"), "args": [], "lib_dirs": ["/gone"], "backend": "hip"}):
+            _, _, pip = self.repair(cfg, [])
+            pip.assert_not_called()
+        (self.eng / "BUILD.json").write_text(json.dumps({"source": "local", "cuda_dirs": ["/usr/local/cuda/lib64"]}))
+        _, _, pip = self.repair({"exe": str(self.eng / "strata"), "args": [], "lib_dirs": ["/gone"]}, [])
+        pip.assert_not_called()                                           # a compiled engine: the toolkit's own
+
+
 if __name__ == "__main__":
     unittest.main()

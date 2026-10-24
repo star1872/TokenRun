@@ -59,6 +59,17 @@ if [ -d "$DEST/app" ]; then
         [ -e "$tmp/new/TokenRun/app/$(basename "$e")" ] || mv "$e" "$tmp/new/TokenRun/app/"
     done
 fi
+# NVIDIA's CUDA libraries that setup's pip put into python/ (~0.4 GB, the engine's lib_dirs) move into the new python/
+# of the same version too: on 2026-10-24 an update deleted them and the engine stopped at start (libcudart.so.13)
+for sp in "$DEST"/python/lib/python3*/site-packages; do
+    [ -d "$sp" ] || continue
+    new="$tmp/new/TokenRun/python/lib/$(basename "$(dirname "$sp")")/site-packages"
+    [ -d "$new" ] || continue
+    for e in "$sp"/nvidia "$sp"/nvidia_*; do
+        [ -e "$e" ] || continue
+        [ -e "$new/$(basename "$e")" ] || mv "$e" "$new/"
+    done
+done
 rm -rf "$DEST/python" "$DEST/app" "$DEST/tokenrun"
 mv "$tmp/new/TokenRun/python" "$tmp/new/TokenRun/app" "$tmp/new/TokenRun/tokenrun" "$DEST/"
 for f in "$tmp/new/TokenRun/"*; do
@@ -74,4 +85,5 @@ case ":$PATH:" in
        say "(or add ~/.local/bin to PATH - log in again, or: export PATH=\"\$HOME/.local/bin:\$PATH\" - then just: tokenrun)" ;;
 esac
 say "On a server without a screen: tokenrun --host 0.0.0.0, then open http://<this server>:8090/ from another PC."
-say "The API only, for other PCs: tokenrun serve --model IQ3_S --host 0.0.0.0 --port 8080 --api-key KEY"
+say "The API only, for other PCs: tokenrun serve --model IQ3_S --host 0.0.0.0 --api-key KEY"
+say "  (port 8080 for a new install, else the one it was set up with; --port N changes it)"

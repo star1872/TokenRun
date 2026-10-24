@@ -1654,20 +1654,23 @@ def _installed(name: str) -> bool:
         return False
 
 
-def pip_install(packages, what):
+def pip_install(packages, what, force=False):
     """pip install into .venv, skipped when the same list was installed before.  An install from before the pinned
     requirements (#214) recorded bare names: those packages are kept as they are (nothing is reinstalled), and the
-    pinned dependencies it already has count as installed."""
+    pinned dependencies it already has count as installed.  force: installed again whatever the stamp and pip's
+    own records say (their files are gone)."""
     stamp = Path(sys.prefix) / ".strata-pip.json"
     have = json.loads(stamp.read_text()) if stamp.exists() else []
     bare = {p.lower() for p in have if req_name(p) == p.lower()}
-    need = [p for p in packages if p not in have and req_name(p) not in bare
-            and not (bare and "==" in p and _installed(req_name(p)))]
+    need = list(packages) if force else [p for p in packages if p not in have and req_name(p) not in bare
+                                         and not (bare and "==" in p and _installed(req_name(p)))]
     if not need:
         ok(f"{what} already installed")
         return
     say(f"  Installing {what} ...")
     pip = [sys.executable, "-m", "pip", "install", "--quiet", "--disable-pip-version-check", "--timeout", "20"]
+    if force:
+        pip.append("--force-reinstall")
     if os.environ.get("PIP_INDEX_URL"):                # an index the user chose: only that one
         run(pip + need)
     else:
@@ -2507,12 +2510,13 @@ def update_installed_engine(url_base, toolkit=None) -> None:
     pip_cuda_libs(toolkit)
 
 
-def pip_cuda_libs(toolkit=13) -> None:
+def pip_cuda_libs(toolkit=13, force=False) -> None:
     """NVIDIA's cuBLAS and CUDA runtime for a ready-made engine, from pip: CUDA 13's, or the CUDA 12 engine's."""
     if int(toolkit) == 12:
-        pip_install(CUDA12_WHEELS, "NVIDIA CUDA 12 libraries for the experimental engine (cuBLAS, CUDA runtime; ~0.7 GB)")
+        pip_install(CUDA12_WHEELS, "NVIDIA CUDA 12 libraries for the experimental engine (cuBLAS, CUDA runtime; ~0.7 GB)",
+                    force)
     else:
-        pip_install(CUDA_WHEELS, "NVIDIA CUDA libraries (cuBLAS, CUDA runtime; ~0.4 GB)")
+        pip_install(CUDA_WHEELS, "NVIDIA CUDA libraries (cuBLAS, CUDA runtime; ~0.4 GB)", force)
 
 
 def install_build_tools(gpu, yes):
@@ -3451,6 +3455,33 @@ def settings_summary(cfg: dict, port=None) -> str:
     return " ".join(out) + ("; " if out else "") + "server " + ", ".join(srv)
 
 
+def repair_cuda_libs(cfg_path: Path, cfg: dict) -> dict:
+    """A ready-made CUDA engine whose library folders are all gone gets NVIDIA's wheels again and the folders pip put
+    them in.  2026-10-24, a 4080 SUPER: install.sh's update replaced python/ (where setup's pip had put the CUDA
+    runtime), the config still named python/.../nvidia/cu13/lib, and the engine stopped at start with
+    "libcudart.so.13: cannot open shared object file" - every 30 s as a service."""
+    dirs = cfg.get("lib_dirs") or []
+    if cfg.get("backend") == "hip" or not dirs or any(Path(d).is_dir() for d in dirs):
+        return cfg
+    eng = Path(cfg["exe"]).parent
+    try:
+        meta = json.loads((eng / "BUILD.json").read_text())
+    except (OSError, ValueError):
+        meta = {}
+    if meta.get("source") == "local" or meta.get("lib_dirs") or meta.get("cuda_dirs"):
+        return cfg                                     # a compiled engine's toolkit: not pip's to bring back
+    tk = config_toolkit(cfg)
+    warn(f"the CUDA libraries this model's engine loads are gone ({dirs[0]}): installing them again")
+    pip_cuda_libs(tk, force=True)
+    new = cuda_lib_dirs(tk)
+    if not new:
+        fail("NVIDIA's CUDA libraries were installed but not found", "run it again with --setup to repair")
+    cfg["lib_dirs"] = new
+    write_config(cfg_path, cfg)
+    ok("CUDA libraries installed again: " + ", ".join(new))
+    return cfg
+
+
 def start(cfg_path: Path, port: int | None, gpu: int | list | None = None, open_browser=True, yes=False,
           layer_split=None, keep=None) -> int:
     """keep: settings given on this start that the model keeps from now on (--host, --api-key, --draft-vocab,
@@ -3459,6 +3490,7 @@ def start(cfg_path: Path, port: int | None, gpu: int | list | None = None, open_
     missing = [p for p in [cfg["exe"], *[a for a in cfg["args"] if a.endswith(".gguf")]] if not Path(p).exists()]
     if missing:
         fail(f"{cfg_path.name} refers to missing files: {missing[0]}", "run it again with --setup to repair")
+    cfg = repair_cuda_libs(cfg_path, cfg)
     keep = {k: v for k, v in (keep or {}).items() if v is not None}
     reserve = keep.pop("vram_reserve_mib", None)       # #493: an engine argument, kept in the config's args
     if reserve is not None:
