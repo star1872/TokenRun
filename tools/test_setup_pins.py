@@ -212,8 +212,10 @@ class Engine(unittest.TestCase):
                 got = []
                 with mock.patch.object(setup, "model_source", lambda: "modelscope"),                         mock.patch.object(setup, "ms_meta", lambda repo, path: (1, sha)),                         mock.patch.object(setup.urllib.request, "urlopen", lambda req, timeout=None: Response()),                         mock.patch.object(setup, "download", self.fake_download(got)):
                     eng, out = quiet(setup.get_prebuilt, setup.PREBUILT_URL, {"arch": 89}, "gpu")
-                self.assertEqual(got, [self.MS + setup.PREBUILT_ASSET])
-                self.assertEqual(eng, self.root / "engine" if used else None)
+                # a copy that does not match is not used: the fork's release on GitHub next
+                gh = "https://github.com/star1872/TokenRun/releases/download/engine-v0.1.31/" + setup.PREBUILT_ASSET
+                self.assertEqual(got, [self.MS + setup.PREBUILT_ASSET] + ([] if used else [gh]))
+                self.assertEqual(eng, self.root / "engine")
                 if not used:
                     self.assertIn("does not match its SHA-256", out)
 

@@ -2375,22 +2375,25 @@ def get_prebuilt(url_base, gpu, vision, updating=False, toolkit=13) -> Path | No
     z = eng / asset
     bases = prebuilt_bases(url_base)
     for i, base in enumerate(bases):
-        if not base.startswith(("http://", "https://")):
+        if base.startswith(("http://", "https://")):
+            try:                                       # not published (yet), or no internet: compile instead
+                req = urllib.request.Request(base + asset, method="HEAD", headers={"User-Agent": "strata-setup"})
+                urllib.request.urlopen(req, timeout=60).close()
+            except OSError as e:
+                if i + 1 < len(bases):                 # #214: this checkout's release is not published (yet)
+                    say(f"  No ready-made engine for v{ENGINE_VERSION} at {base} ({e}): trying {bases[i + 1]}")
+                    continue
+                warn(f"no ready-made engine at {base} ({e})" + ("" if updating else ": compiling instead"))
+                return None
+        say("  Downloading the ready-made Strata engine" + (" (CUDA 12, experimental)" if int(toolkit) == 12 else "") +
+            " ...")
+        download(base + asset, z, "Strata engine")
+        if ms_engine_ok(base, z):
             break
-        try:                                           # not published (yet), or no internet: compile instead
-            req = urllib.request.Request(base + asset, method="HEAD", headers={"User-Agent": "strata-setup"})
-            urllib.request.urlopen(req, timeout=60).close()
-            break
-        except OSError as e:
-            if i + 1 < len(bases):                     # #214: this checkout's release is not published (yet)
-                say(f"  No ready-made engine for v{ENGINE_VERSION} at {base} ({e}): trying {bases[i + 1]}")
-                continue
-            warn(f"no ready-made engine at {base} ({e})" + ("" if updating else ": compiling instead"))
-            return None
-    say("  Downloading the ready-made Strata engine" + (" (CUDA 12, experimental)" if int(toolkit) == 12 else "") + " ...")
-    download(base + asset, z, "Strata engine")
-    if not ms_engine_ok(base, z):
-        drop_archive(z)
+        drop_archive(z)                                # 2026-11-07, llmserver: one 0.72 GB download from ModelScope
+        if i + 1 < len(bases) and bases[i + 1].startswith(("http://", "https://")):     # came back with another
+            say(f"  trying {bases[i + 1]}")             # SHA-256; the next one was right
+            continue
         return None
     tmp = eng / "_unpack"
     shutil.rmtree(tmp, ignore_errors=True)

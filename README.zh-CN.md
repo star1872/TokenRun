@@ -44,7 +44,25 @@ Ubuntu 24.04。4 个提示词（中文作文、改代码、英译中、技术解
 
 ### Strata 引擎（Qwen3.8-Flash-Next）
 
-TokenRun 用的是官方 Strata 0.1.44.1 引擎（用 Niko1221/Strata 的源码标签编译），加上这些设置（`serve/server.py` 的
+TokenRun 用的是官方 Strata 0.1.57 引擎（Niko1221/Strata 发布页 v0.2.11 的 Windows / Linux CUDA 13 引擎，
+原样转发，核对过 SHA-256）。0.1.57 有三项新默认会改变答案：新的 CPU/PCIe 分担规则、32K 的提示词分块、
+K-quant 专家的新提示词内核。TokenRun 把这三项都设回 0.1.44.1 的规则（`STRATA_PCIE_K_RULE=0`、
+`STRATA_PCIE_SHARE_MAX=0.60`、`STRATA_NV_CHUNK=0`、`STRATA_MMQ_KQ=0`）。
+
+2026-11-07，UD-IQ4_XS，MTP，8 个提示词（中英各 4 个），每次 512 token，贪心，不思考，两组交替测试：
+
+| 引擎 | 单请求解码 | 并发 2（总吞吐） |
+| --- | ---: | ---: |
+| Strata 0.1.44.1 + TokenRun 的设置 | 20.04 tok/s | 15.87 tok/s |
+| **Strata 0.1.57 + TokenRun 的设置** | **21.15 tok/s（+5.5%）** | **17.21 tok/s（+8.5%）** |
+
+单请求测了 5 轮，并发 2 测了 2 轮，每一轮都是 0.1.57 更快。精度：同一段 3,166 token 文本的教师强制平均 NLL
+（去掉结束标记）0.1.44.1 是 2.5264，0.1.57 是 2.5263；逐 token 对数概率平均差 0.406，比 0.1.44.1 只改缓存
+大小（`--expert-cache 3000`）造成的 0.437 还小。
+同时测过、没有采用的：DFlash2 草稿模型（conf 0.8：20.81 tok/s，猜中率 0.82，比 MTP 慢；conf 0.5：20.23）、
+0.1.57 的新 CPU 分担规则（20.35 tok/s，而且会改答案）。没测：Windows、IQ3_S / Q2_0、4080 SUPER 这类显存更大的卡。
+
+以下是更早的测试。当时 TokenRun 用的是官方 Strata 0.1.44.1 引擎（用 Niko1221/Strata 的源码标签编译），加上这些设置（`serve/server.py` 的
 `engine_env`）：关闭 route tail skip（`STRATA_ROUTE_TAIL_SKIP=0`；Strata 从 0.1.42 起默认打开，它会跳过排名第 7 以后、
 又不在显存里的专家，等于少算了模型选中的专家）、关闭短提示词的 CPU 分担、打开 Q2_0 的 AVX2 内核，
 Linux 上让自适应缓存的拷贝和下一个解码窗口同时进行（`STRATA_ADAPT_OVERLAP=1`）。

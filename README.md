@@ -50,7 +50,26 @@ different days are not compared with each other: this PC's speed depends on wher
 
 ### Strata engine (Qwen3.8-Flash-Next)
 
-TokenRun runs the official Strata engine 0.1.44.1 (built from Niko1221/Strata's tag) with these settings
+TokenRun runs the official Strata engine 0.1.57: the Windows and Linux CUDA 13 engines of Niko1221/Strata's release
+v0.2.11, unchanged and checked against their SHA-256. Three new defaults of 0.1.57 change answers: the new CPU / PCIe
+share rule, 32K prompt chunks and new prompt kernels for K-quant experts. TokenRun sets all three back to 0.1.44.1's
+rules (`STRATA_PCIE_K_RULE=0`, `STRATA_PCIE_SHARE_MAX=0.60`, `STRATA_NV_CHUNK=0`, `STRATA_MMQ_KQ=0`).
+
+2026-11-07, UD-IQ4_XS, MTP, 8 prompts (4 English, 4 Chinese), 512 tokens, greedy, no thinking, interleaved:
+
+| Engine | Decode, one request | Parallel 2 (total) |
+| --- | ---: | ---: |
+| Strata 0.1.44.1 with TokenRun's settings | 20.04 tok/s | 15.87 tok/s |
+| **Strata 0.1.57 with TokenRun's settings** | **21.15 tok/s (+5.5%)** | **17.21 tok/s (+8.5%)** |
+
+5 rounds for one request and 2 rounds for parallel 2; 0.1.57 was faster in every round. Accuracy: the teacher-forced
+mean NLL of a 3,166-token text (without the end mark) is 2.5264 on 0.1.44.1 and 2.5263 on 0.1.57; the mean per-token
+|Δ log p| is 0.406, less than the 0.437 that 0.1.44.1 gets from changing only the cache size (`--expert-cache 3000`).
+Measured as well and not adopted: the DFlash2 drafter (conf 0.8: 20.81 tok/s, acceptance 0.82 but slower than MTP;
+conf 0.5: 20.23) and 0.1.57's new CPU share rule (20.35 tok/s, and it changes answers). Not measured: Windows,
+IQ3_S / Q2_0, and cards with more VRAM such as a 4080 SUPER.
+
+Earlier measurements follow. TokenRun then ran the official Strata engine 0.1.44.1 (built from Niko1221/Strata's tag) with these settings
 (`serve/server.py`, `engine_env`): the route tail skip off (`STRATA_ROUTE_TAIL_SKIP=0`; on by default in Strata since
 0.1.42, it leaves out a missed expert ranked 7th or lower, i.e. it computes fewer experts than the model routes), the
 CPU share of short prompts off, the Q2_0 AVX2 kernel on, and on Linux the adaptive tier's copies overlapped with the
