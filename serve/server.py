@@ -1568,11 +1568,32 @@ def engine_env(cfg: dict) -> dict:
       STRATA_Q2_BITPLANE=1       the Q2_0 AVX2 kernel (#706, the same results; +4.3% on llmserver)
       STRATA_ADAPT_OVERLAP=1     Linux CUDA: the adaptive tier's copies overlap the next window (the same tokens; +6.5%
                                  above).  Upstream: -2.6% on Windows (RTX 5070), so Windows keeps
-      STRATA_ADAPT_LAG=2         the next-but-one window waits for the copies (#764; TokenRun's 0.1.39 default)"""
-    env = {"STRATA_ROUTE_TAIL_SKIP": "0", "STRATA_PREFILL_CPU_SHARE": "0", "STRATA_Q2_BITPLANE": "1"}
+      STRATA_ADAPT_LAG=2         the next-but-one window waits for the copies (#764; TokenRun's 0.1.39 default)
+    0.1.57 (official v0.2.11) changed three defaults that change answers; TokenRun keeps the earlier rules:
+      STRATA_PCIE_K_RULE=0, STRATA_PCIE_SHARE_MAX=0.60   the CPU / PCIe share of a missed expert (0.1.57's rule goes
+                                 to 0.95; upstream's first-token KL against the old rule ~0.031, top-1 92%)
+      STRATA_NV_CHUNK=0          prompts in chunks of 8192 tokens, not 32768
+      STRATA_MMQ_KQ=0            the K-quant experts (UD-Q4/Q5/Q6 files) on the earlier prompt kernels
+    llmserver, UD-IQ4_XS, MTP, 5 interleaved rounds of 8 prompts (4 English, 4 Chinese, 512 tokens, greedy):
+    0.1.44.1 20.04 tok/s, 0.1.57 with these 21.15 (+5.5%); with 0.1.57's share rule instead 20.35."""
+    env = {"STRATA_ROUTE_TAIL_SKIP": "0", "STRATA_PREFILL_CPU_SHARE": "0", "STRATA_Q2_BITPLANE": "1",
+           "STRATA_PCIE_K_RULE": "0", "STRATA_PCIE_SHARE_MAX": "0.60", "STRATA_NV_CHUNK": "0", "STRATA_MMQ_KQ": "0"}
     if cfg.get("backend") != "hip":
         env.update({"STRATA_ADAPT_LAG": "2"} if os.name == "nt" else {"STRATA_ADAPT_OVERLAP": "1"})
     return env
+
+
+CUDA_BUNDLED = ("cublas64_13.dll",) if os.name == "nt" else ("libcublas.so.13", "libcudart.so.13")
+
+
+def bundled_cuda_dir(cfg: dict) -> str | None:
+    """The engine's own folder when it carries NVIDIA's CUDA 13 libraries (the official 0.1.57 archive, which was
+    measured with them): first on the library path, ahead of pip's wheels (cuBLAS 13.0.2), which an older config
+    names.  None for an engine without them (AMD, compiled here, CUDA 12)."""
+    if cfg.get("backend") == "hip" or not cfg.get("exe"):
+        return None
+    d = Path(cfg["exe"]).parent
+    return str(d) if all((d / n).is_file() for n in CUDA_BUNDLED) else None
 
 
 def child_env(cfg: dict) -> dict:
@@ -1589,6 +1610,9 @@ def child_env(cfg: dict) -> dict:
     for k, v in (cfg.get("env") or {}).items():      # engine settings the config carries (AMD: the GEMM tuning table)
         env[str(k)] = str(v)
     dirs = [d for d in cfg.get("lib_dirs") or [] if Path(d).is_dir()]
+    own = bundled_cuda_dir(cfg)                      # 0.1.57: the official engine carries its own cuBLAS / runtime
+    if own and own not in dirs:
+        dirs = [own] + dirs
     if dirs:
         var = "PATH" if os.name == "nt" else "LD_LIBRARY_PATH"
         env[var] = os.pathsep.join(dirs + ([env[var]] if env.get(var) else []))

@@ -3,7 +3,12 @@ engine is the official Strata source at setup.py's ENGINE_VERSION (checked out i
 this checkout's own source.
 
     python tools/ci_package.py engine-version
-        setup.py's ENGINE_VERSION: the official Strata tag (v<it>) the engine job checks out and builds.
+        setup.py's ENGINE_VERSION: the release engine-v<it> the archives are published as.
+    python tools/ci_package.py engine-tag
+        setup.py's ENGINE_SOURCE_TAG: the official Strata tag (from 0.2.x the app's version, not the engine's).
+    python tools/ci_package.py repack windows|linux --out X.zip
+        0.1.57 on: the official release's CUDA 13 engine archive (OFFICIAL, checked against its SHA-256), unchanged,
+        in the zip setup.py downloads (get_prebuilt): every file of it at the top, BUILD.json with setup's fields.
     python tools/ci_package.py llama
         llama.cpp at setup.py's pinned commit (LLAMA_CPP_COMMIT) into third_party/llama.cpp, as setup.py unpacks it
         (without tools/ui, whose deep paths pass Windows' 260-character limit).
@@ -26,7 +31,9 @@ this checkout's own source.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
+import tarfile
 import json
 import os
 import re
@@ -109,12 +116,76 @@ def package(exe: Path, vision: Path | None, out: Path) -> None:
     print(f"-> {out} ({out.stat().st_size / 1e6:.1f} MB)")
 
 
+# The official archives of ENGINE_SOURCE_TAG (https://github.com/Niko1221/Strata/releases), as its SHA256SUMS.txt
+# lists them.  A different file is not packaged.
+OFFICIAL = {
+    "0.1.57": {
+        "windows": ("strata-engine-0.1.57-windows-x86_64-cuda-cuda13.tar.gz",
+                    "0cdf191f0fb39b90edbb902f4d096b90f2ee90a4542deb8aef24985b22407c0f"),
+        "linux": ("strata-engine-0.1.57-linux-x86_64-cuda-cuda13.tar.gz",
+                  "cc58226bffc12216a5a2e6019dfdbf4896042500df132cc3fa3c72a2388a228b"),
+    },
+}
+
+
+def repack(os_name: str, out: Path) -> None:
+    v, tag = setup_value("ENGINE_VERSION"), setup_value("ENGINE_SOURCE_TAG")
+    name, sha = OFFICIAL[v][os_name]
+    url = f"https://github.com/Niko1221/Strata/releases/download/{tag}/{name}"
+    src = out.resolve().parent / name
+    if not src.exists():
+        print(f"{name} <- {url}", flush=True)
+        req = urllib.request.Request(url, headers={"User-Agent": "strata-ci"})
+        with urllib.request.urlopen(req, timeout=1800) as r, open(src, "wb") as f:
+            shutil.copyfileobj(r, f, 8 << 20)
+    h = hashlib.sha256()
+    with open(src, "rb") as f:
+        for b in iter(lambda: f.read(8 << 20), b""):
+            h.update(b)
+    if h.hexdigest() != sha:
+        raise SystemExit(f"{name}: SHA-256 {h.hexdigest()}, the official release lists {sha}")
+    exe = "strata.exe" if os_name == "windows" else "strata"
+    vexe = "strata-vision.exe" if os_name == "windows" else "strata-vision"
+    with tarfile.open(src, "r:gz") as t:
+        files = [m for m in t.getmembers() if m.isfile()]
+        top = {m.name.split("/")[0] for m in files}
+        strip = len(top) == 1 and all("/" in m.name for m in files)    # one folder at the top: its contents
+        rel = {m.name: (m.name.split("/", 1)[1] if strip else m.name).removeprefix("./") for m in files}
+        names = set(rel.values())
+        for need in (exe, vexe, "BUILD.json"):
+            if need not in names:
+                raise SystemExit(f"{name} has no {need}")
+        meta = json.load(t.extractfile(next(m for m in files if rel[m.name] == "BUILD.json")))
+        va = meta.get("vision_archs")
+        meta.update({
+            "version": meta.get("version") or v, "source": "release", "vision": "gpu", "portable": True,
+            "vision_archs": [int(x) for x in str(va).split(";") if x.strip().isdigit()] if isinstance(va, str) else va,
+            "fork": "tokenrun", "strata_ref": tag,
+            "official": {"file": name, "sha256": sha, "build": meta.get("source")},
+            "commit": os.environ.get("GITHUB_SHA", "")[:12]})
+        if meta["version"] != v:
+            raise SystemExit(f"{name} is engine {meta['version']}, setup.py's ENGINE_VERSION is {v}")
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as z:
+            for m in files:
+                if rel[m.name] == "BUILD.json":
+                    continue
+                info = zipfile.ZipInfo(rel[m.name], (2026, 1, 1, 0, 0, 0))
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.external_attr = (m.mode & 0o777 | 0o100000) << 16
+                with t.extractfile(m) as fsrc, z.open(info, "w", force_zip64=True) as fdst:
+                    shutil.copyfileobj(fsrc, fdst, 8 << 20)
+            z.writestr("BUILD.json", json.dumps(meta, indent=1))
+    print(json.dumps(meta, indent=1))
+    print(f"-> {out} ({out.stat().st_size / 1e6:.1f} MB): " + ", ".join(sorted(names)))
+
+
 MS_README = """# Strata engine (TokenRun, star1872/TokenRun)
 
 A copy of the ready-made engine archives of https://github.com/star1872/TokenRun/releases (release engine-v<version>),
 for PCs that reach ModelScope but not GitHub's downloads.  setup.py downloads them from here by itself; there is no
-need to download them by hand.  Built by GitHub Actions from the official Strata source of that version
-(STRATA_PORTABLE, CUDA 13.0, RTX 20/30/40/50); each archive's BUILD.json names the tag.  oldhw-v<version>/: the
+need to download them by hand.  From engine-v0.1.57: the official Strata release's CUDA 13 engines, unchanged (checked
+against their SHA-256; BUILD.json "official" names the file), with their cuBLAS / CUDA runtime.  Before: built by
+GitHub Actions from the official Strata source of that version (STRATA_PORTABLE, CUDA 13.0, RTX 20/30/40/50).  oldhw-v<version>/: the
 engines of TokenRun before 2026-10-14 (Strata 0.1.39 with the old-PC changes), kept for older installs.
 
 Strata: https://github.com/Niko1221/Strata (MIT)
@@ -258,14 +329,21 @@ def tokenrun(files: list[Path]) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("step", choices=["engine-version", "llama", "zip", "modelscope", "llama-mirror", "tokenrun"])
+    ap.add_argument("step", choices=["engine-version", "engine-tag", "repack", "llama", "zip", "modelscope",
+                                     "llama-mirror", "tokenrun"])
     ap.add_argument("files", nargs="*", type=Path)
     ap.add_argument("--exe", type=Path)
     ap.add_argument("--vision", type=Path)
     ap.add_argument("--out", type=Path)
     a = ap.parse_args()
-    if a.step == "engine-version":                    # the official tag the engine job builds (v<this>)
+    if a.step == "engine-version":                    # the release it is published as (engine-v<this>)
         print(setup_value("ENGINE_VERSION"))
+    elif a.step == "engine-tag":                      # the official tag
+        print(setup_value("ENGINE_SOURCE_TAG"))
+    elif a.step == "repack":
+        if len(a.files) != 1 or str(a.files[0]) not in ("windows", "linux") or not a.out:
+            ap.error("repack needs windows or linux, and --out")
+        repack(str(a.files[0]), a.out)
     elif a.step == "llama":
         llama()
     elif a.step == "llama-mirror":

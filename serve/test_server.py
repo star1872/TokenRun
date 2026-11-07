@@ -824,6 +824,32 @@ class GpuChoice(unittest.TestCase):
             os.environ["STRATA_ROUTE_TAIL_SKIP"] = "5"
             self.assertEqual(child_env({})["STRATA_ROUTE_TAIL_SKIP"], "5")
 
+    def test_0157_keeps_the_earlier_answer_rules(self):
+        """0.1.57's new CPU share rule, 32K prompt chunk and K-quant prompt kernels change answers: set back."""
+        from serve.server import child_env
+        with mock.patch.dict(os.environ, {}, clear=False):
+            for k in ("STRATA_PCIE_K_RULE", "STRATA_PCIE_SHARE_MAX", "STRATA_NV_CHUNK", "STRATA_MMQ_KQ"):
+                os.environ.pop(k, None)
+            env = child_env({})
+            self.assertEqual([env[k] for k in ("STRATA_PCIE_K_RULE", "STRATA_PCIE_SHARE_MAX", "STRATA_NV_CHUNK",
+                                               "STRATA_MMQ_KQ")], ["0", "0.60", "0", "0"])
+            self.assertEqual(child_env({"env": {"STRATA_NV_CHUNK": 1}})["STRATA_NV_CHUNK"], "1")
+
+    def test_the_engines_own_cuda_libraries_first(self):
+        """The official 0.1.57 archive carries cuBLAS (and on Linux the runtime): its folder goes ahead of pip's."""
+        from serve.server import CUDA_BUNDLED, child_env
+        var = "PATH" if os.name == "nt" else "LD_LIBRARY_PATH"
+        with tempfile.TemporaryDirectory() as d:
+            eng, wheels = Path(d) / "engine", Path(d) / "wheels"
+            eng.mkdir()
+            wheels.mkdir()
+            cfg = {"exe": str(eng / "strata"), "lib_dirs": [str(wheels)]}
+            self.assertEqual(child_env(cfg)[var].split(os.pathsep)[0], str(wheels))     # an engine without them
+            for n in CUDA_BUNDLED:
+                (eng / n).write_bytes(b"")
+            self.assertEqual(child_env(cfg)[var].split(os.pathsep)[:2], [str(eng), str(wheels)])
+            self.assertEqual(child_env({**cfg, "backend": "hip"})[var].split(os.pathsep)[0], str(wheels))
+
     def test_vision_device(self):
         # #408: the image encoder on its own card; the engine's environment stays as it was
         from serve.server import child_env, vision_env

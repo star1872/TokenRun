@@ -154,6 +154,7 @@ class Engine(unittest.TestCase):
         self.patches = [mock.patch.object(setup, "ROOT", self.root),
                         mock.patch.object(setup, "source_version", lambda: "0.1.31"),
                         mock.patch.object(setup, "ENGINE_VERSION", "0.1.31"),
+                        mock.patch.object(setup, "UPSTREAM_ENGINE_VERSION", "0.1.31"),
                         mock.patch.object(setup, "model_source", lambda: "huggingface")]
         for p in self.patches:
             p.start()
@@ -188,10 +189,10 @@ class Engine(unittest.TestCase):
     MS = "https://www.modelscope.cn/models/mymodel3861/Strata-oldhw-engine/resolve/master/engine-v0.1.31/"
 
     def test_bases(self):
-        # TokenRun's build of the official engine first (its ModelScope copy next), then the official release of the same version,
-        # then the official latest
+        # TokenRun's build of the official engine first (its ModelScope copy next), then the official release of
+        # UPSTREAM_ENGINE_VERSION (its CUDA 12 and AMD zips; from 0.2.x the official release packages engines otherwise)
         gh = ["https://github.com/star1872/TokenRun/releases/download/engine-v0.1.31/",
-              "https://github.com/Niko1221/Strata/releases/download/v0.1.31/", setup.UPSTREAM_PREBUILT_URL]
+              "https://github.com/Niko1221/Strata/releases/download/v0.1.31/"]
         self.assertEqual(setup.prebuilt_bases(setup.PREBUILT_URL), gh[:1] + [self.MS] + gh[1:])
         # mainland China: the ModelScope copy first
         with mock.patch.object(setup, "model_source", lambda: "modelscope"):
@@ -230,10 +231,10 @@ class Engine(unittest.TestCase):
         self.assertEqual(got, [tag + setup.PREBUILT_ASSET])
         self.assertEqual(len(heads), 3)                # the fork's release and its ModelScope copy first
 
-    def test_latest_when_it_is_not_published(self):
-        eng, out, heads, got = self.run_get([setup.UPSTREAM_PREBUILT_URL])
-        self.assertEqual(eng, self.root / "engine")
-        self.assertEqual(got, [setup.UPSTREAM_PREBUILT_URL + setup.PREBUILT_ASSET])
+    def test_compiled_when_none_is_published(self):
+        eng, out, heads, got = self.run_get([setup.UPSTREAM_PREBUILT_URL])     # the official latest is not asked
+        self.assertIsNone(eng)
+        self.assertEqual((got, len(heads)), ([], 3))
         self.assertIn("No ready-made engine for v0.1.31", out)
 
     def test_a_refused_archive_is_not_kept(self):

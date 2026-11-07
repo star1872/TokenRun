@@ -1,8 +1,10 @@
-# TokenRun's ready-made Strata engine: the official source of Niko1221/Strata at setup.py's ENGINE_VERSION (tag
-# v<ENGINE_VERSION>), built like the official release (STRATA_PORTABLE, CUDA 13.0, RTX 20/30/40/50) for Windows and
-# Linux - the official release has no Linux engine.  setup.py downloads it from the release engine-v<version>
-# (PREBUILT_TAG_URL; a copy on ModelScope, MS_ENGINE_REPO).  Building needs no GPU; the engine is not run here.
-# Run it by hand after changing ENGINE_VERSION (gh workflow run oldhw-engine.yml).
+# TokenRun's ready-made Strata engine, release engine-v<ENGINE_VERSION>.  From 0.1.57 the official release of
+# Niko1221/Strata (tag ENGINE_SOURCE_TAG) has Windows and Linux CUDA 13 engines: they are published here unchanged,
+# checked against the SHA-256 the official release lists (tools/ci_package.py OFFICIAL), in the zip setup.py reads
+# (every file at the top, BUILD.json with setup's fields).  setup.py downloads it from the release engine-v<version>
+# (PREBUILT_TAG_URL; a copy on ModelScope, MS_ENGINE_REPO).  Run it by hand after changing ENGINE_VERSION
+# (gh workflow run oldhw-engine.yml).  Before 0.1.57 this job compiled the official source (STRATA_PORTABLE,
+# CUDA 13.0, RTX 20/30/40/50); git history has that version.
 name: engine (official Strata for TokenRun)
 
 on:
@@ -14,97 +16,27 @@ on:
 permissions:
   contents: write
 
-env:
-  CUDA_ARCHS: "75-real;86-real;89-real;120"        # sm_120 also as PTX: newer cards run it too ("ptx": true)
-  ENGINE_SRC: strata-src                            # where the official source is checked out (tools/ci_package.py)
-
 jobs:
-  windows:
-    runs-on: windows-2022
-    timeout-minutes: 345
-    steps:
-      - uses: actions/checkout@v4
-      - name: the official tag (setup.py's ENGINE_VERSION)
-        shell: bash
-        run: echo "STRATA_REF=v$(python tools/ci_package.py engine-version)" >> $GITHUB_ENV
-      - uses: actions/checkout@v4
-        with: {repository: Niko1221/Strata, ref: "${{ env.STRATA_REF }}", path: strata-src}
-      - uses: actions/setup-python@v5
-        with: {python-version: "3.12"}
-      - name: cmake, ninja
-        run: python -m pip install cmake ninja
-      - name: llama.cpp at setup.py's pinned commit
-        run: python tools/ci_package.py llama
-      - uses: Jimver/cuda-toolkit@v0.2.36
-        with:
-          cuda: "13.0.2"
-          method: network
-          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "crt", "nvvm", "nvptxcompiler", "thrust", "visual_studio_integration"]'
-      - uses: ilammy/msvc-dev-cmd@v1
-        with: {arch: x64}
-      - name: engine
-        shell: cmd
-        run: |
-          cmake -G Ninja -S strata-src -B build -DCMAKE_BUILD_TYPE=Release -DSTRATA_PORTABLE=ON -DSTRATA_ENABLE_CUDA=ON ^
-            -DSTRATA_BUILD_TESTS=OFF "-DCMAKE_CUDA_ARCHITECTURES=%CUDA_ARCHS%" -DSTRATA_GGML_DIR=%CD%\third_party\llama.cpp || exit /b 1
-          cmake --build build --target strata -j 4 || cmake --build build --target strata -j 4
-      - name: image encoder
-        shell: cmd
-        run: |
-          cmake -G Ninja -S strata-src/tools/vision -B build-vision -DCMAKE_BUILD_TYPE=Release -DSTRATA_PORTABLE=ON ^
-            -DLLAMA_DIR=%CD%\third_party\llama.cpp -DSTRATA_VISION_CUDA=ON "-DCMAKE_CUDA_ARCHITECTURES=%CUDA_ARCHS%" || exit /b 1
-          cmake --build build-vision --target strata-vision -j 4 || cmake --build build-vision --target strata-vision -j 4
-      - name: package
-        run: python tools/ci_package.py zip --exe build/strata.exe --vision build-vision/bin/strata-vision.exe --out strata-windows-x64.zip
-      - uses: actions/upload-artifact@v4
-        with: {name: strata-windows-x64, path: strata-windows-x64.zip, retention-days: 30}
-
-  linux:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 345
-    container: nvidia/cuda:13.0.2-devel-ubuntu22.04
-    steps:
-      - name: tools
-        run: |
-          apt-get update && apt-get install -y --no-install-recommends python3 python3-pip git curl ca-certificates build-essential
-          python3 -m pip install cmake ninja
-      - uses: actions/checkout@v4
-      - name: the official tag (setup.py's ENGINE_VERSION)
-        run: echo "STRATA_REF=v$(python3 tools/ci_package.py engine-version)" >> $GITHUB_ENV
-      - uses: actions/checkout@v4
-        with: {repository: Niko1221/Strata, ref: "${{ env.STRATA_REF }}", path: strata-src}
-      - name: llama.cpp at setup.py's pinned commit
-        run: python3 tools/ci_package.py llama
-      - name: engine
-        run: |
-          cmake -G Ninja -S strata-src -B build -DCMAKE_BUILD_TYPE=Release -DSTRATA_PORTABLE=ON -DSTRATA_ENABLE_CUDA=ON \
-            -DSTRATA_BUILD_TESTS=OFF "-DCMAKE_CUDA_ARCHITECTURES=$CUDA_ARCHS" -DSTRATA_GGML_DIR=$PWD/third_party/llama.cpp
-          cmake --build build --target strata -j 4 || cmake --build build --target strata -j 4
-      - name: image encoder
-        run: |
-          cmake -G Ninja -S strata-src/tools/vision -B build-vision -DCMAKE_BUILD_TYPE=Release -DSTRATA_PORTABLE=ON \
-            -DLLAMA_DIR=$PWD/third_party/llama.cpp -DSTRATA_VISION_CUDA=ON "-DCMAKE_CUDA_ARCHITECTURES=$CUDA_ARCHS"
-          cmake --build build-vision --target strata-vision -j 4 || cmake --build build-vision --target strata-vision -j 4
-      - name: package
-        run: python3 tools/ci_package.py zip --exe build/strata --vision build-vision/bin/strata-vision --out strata-linux-x64.zip
-      - uses: actions/upload-artifact@v4
-        with: {name: strata-linux-x64, path: strata-linux-x64.zip, retention-days: 30}
-
   release:
-    needs: [windows, linux]
-    if: ${{ !cancelled() && (needs.windows.result == 'success' || needs.linux.result == 'success') }}
     runs-on: ubuntu-22.04
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with: {path: dist, merge-multiple: true}
+      - name: the official archives, checked and repacked
+        run: |
+          mkdir -p dist
+          python3 tools/ci_package.py repack windows --out dist/strata-windows-x64.zip
+          python3 tools/ci_package.py repack linux --out dist/strata-linux-x64.zip
+          rm -f dist/*.tar.gz
+          ls -la dist
       - name: release engine-v<version>
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           V=$(python3 tools/ci_package.py engine-version)
+          T=$(python3 tools/ci_package.py engine-tag)
           TAG="engine-v$V"
-          NOTES="Strata engine $V for TokenRun: the official source (Niko1221/Strata, tag v$V) built with the official settings (STRATA_PORTABLE, CUDA 13.0, RTX 20/30/40/50) by GitHub Actions without a GPU (TokenRun ${GITHUB_SHA::7}). TokenRun runs it with STRATA_ROUTE_TAIL_SKIP=0 (serve/server.py engine_env). Linux: measured on an RTX 4060 Ti 16 GB / Xeon E5-2673 v3 (a local build of the same tag). Windows: NOT yet tested on a Windows PC with a GPU."
+          NOTES="Strata engine $V for TokenRun: the official release's CUDA 13 engines (Niko1221/Strata, tag $T: strata-engine-$V-windows-x86_64-cuda-cuda13.tar.gz and strata-engine-$V-linux-x86_64-cuda-cuda13.tar.gz), unchanged and checked against their SHA-256, repacked as the zip TokenRun's setup reads (TokenRun ${GITHUB_SHA::7}). They carry their own cuBLAS (and, on Linux, CUDA runtime). TokenRun runs them with serve/server.py engine_env, which keeps the earlier answer rules (STRATA_PCIE_K_RULE=0, STRATA_PCIE_SHARE_MAX=0.60, STRATA_NV_CHUNK=0, STRATA_MMQ_KQ=0, STRATA_ROUTE_TAIL_SKIP=0, STRATA_PREFILL_CPU_SHARE=0). Linux measured on an RTX 4060 Ti 16 GB / Xeon E5-2673 v3 / DDR3, UD-IQ4_XS, MTP: 0.1.44.1 20.04 tok/s, $V 21.15 (+5.5%, 5 interleaved rounds of 8 prompts). Windows: NOT yet tested on a Windows PC with a GPU."
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG (Strata engine)" --notes "$NOTES" --latest=false
           gh release edit "$TAG" --notes "$NOTES"
           gh release upload "$TAG" dist/*.zip --clobber

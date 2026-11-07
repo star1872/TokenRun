@@ -201,7 +201,16 @@ LLAMA_CPP_ZIP = f"https://github.com/ggml-org/llama.cpp/archive/{LLAMA_CPP_COMMI
 # version and the latest (UPSTREAM_*), for an engine TokenRun does not build (CUDA 12, AMD).  The engine settings
 # TokenRun turns on or off are serve/server.py's ENGINE_ENV.  llmserver (RTX 4060 Ti 16 GB, Xeon E5-2673 v3, DDR3,
 # PCIe 3.0 x8), IQ3_S, 3 interleaved rounds: 0.1.39 + the fork 40.41 tok/s, 0.1.44.1 + ENGINE_ENV 43.02 (+6.5%).
-ENGINE_VERSION = "0.1.44.1"
+# 0.1.57 (official tag v0.2.11): the official release now has Windows and Linux CUDA 13 engines; the release
+# engine-v0.1.57 carries them unchanged (checked against their SHA-256, tools/ci_package.py repack) with their own
+# cuBLAS / CUDA runtime, in the zip layout setup reads.  llmserver, UD-IQ4_XS, MTP, 5 interleaved rounds of 8 prompts:
+# 0.1.44.1 20.04 tok/s, 0.1.57 + ENGINE_ENV 21.15 (+5.5%).
+ENGINE_VERSION = "0.1.57"
+ENGINE_SOURCE_TAG = "v0.2.11"
+# The CUDA 12 and Windows AMD engines are not TokenRun's: the official release's.  From 0.2.x it packages its engines
+# differently (strata-engine-<v>-<os>-...tar.gz), so they stay at the last release with these zips.
+UPSTREAM_ENGINE_VERSION = "0.1.44.1"
+CUDA12_MIN_ENGINE = (0, 1, 44)
 PREBUILT_URL = "https://github.com/star1872/TokenRun/releases/latest/download/"
 PREBUILT_TAG_URL = "https://github.com/star1872/TokenRun/releases/download/engine-v{version}/"
 UPSTREAM_PREBUILT_URL = "https://github.com/Niko1221/Strata/releases/latest/download/"
@@ -213,6 +222,8 @@ MS_ENGINE_REPO = "mymodel3861/Strata-oldhw-engine"
 PREBUILT_ASSET = "strata-windows-x64.zip" if WIN else "strata-linux-x64.zip"
 # the CUDA libraries the ready-made engine loads (the same CUDA 13.0 it is built with), from NVIDIA's pip packages
 CUDA_WHEELS = ["nvidia-cublas==13.0.2.14", "nvidia-cuda-runtime==13.0.96"]
+# the libraries the official 0.1.57 archive carries next to the engine (used first: serve/server.py child_env)
+CUDA_BUNDLED = ("cublas64_13.dll",) if WIN else ("libcublas.so.13", "libcudart.so.13")
 MIN_DRIVER = 580                       # CUDA 13.0
 # Older NVIDIA GPUs (experimental): CUDA 13 dropped Pascal (sm_60/61) and Volta (sm_70), so a model whose GPUs include
 # one runs a second engine, built with CUDA 12.9 (-DSTRATA_EXPERIMENTAL_SM60=ON) and kept in its own folder: the
@@ -230,7 +241,7 @@ CUDA12_WHEELS = ["nvidia-cublas-cu12==12.9.1.4", "nvidia-cuda-runtime-cu12==12.9
 # toolkit the CUDA 12 zip is built with (cuBLAS 12.9.1.4, runtime 12.9.79).  Not tested on such an old driver here.
 CUDA12_MIN_DRIVER = 528 if WIN else 525
 ENGINE12_DIR = "engine-cuda12"
-MIN_ENGINE = (0, 1, 44)                # TokenRun: ENGINE_VERSION; v0.1.39: the #577 file-tier regression fixed, the OpenAI Responses API (#451, Codex), a reply stuck on one token ended (#606), the head before the arena (#620), effort_position (#458), --vram-reserve hot resize opt-in (#533), PR batch; v0.1.38: prompts faster (one gather per expert group #372, the first chunk's PLE rows beside layer 0 #374, DeltaNet three heads per thread #413), --kv q4_0 prompts on tensor cores (#452), Q5_0 experts on the GPU (#473), IQ4_XS on AVX-2 (#415), unbuffered expert loading on Windows (#357 #362), --peer-device (#531), a 6 GB card starts (#496), PR batch; v0.1.37: a silent engine is restarted (#481), Windows AMD counts the desktop's VRAM (#380 #377 #497), a steadier PCIe probe (#485), fixes #496 #495 #498 #505 #493; v0.1.36: a cancelled prompt logged as read so far (#471), the draft-head hint (#474), UPDATE.bat (#475), --expert-profile-save (#477); v0.1.35: Windows AMD uses its bundled HIP runtime (#468 #461), the low-RAM resident mode on Windows 32 GB (#467), fixes #460 #459 #446 #447 #457 #448 #444; v0.1.34: AMD on Windows (a ready-made HIP engine), an MCP server for AI assistants (tools/strata_mcp.py), a shorter README; v0.1.33: a portable image encoder again (#411 #412), setup recommends instead of forcing (#406 #403 #364 #384), fixes #352 #365 #369 #371 #375 #393 #408 #414; v0.1.32: split prompts faster (#340), AMD router +12%, Unsloth Q4 in setup, faster Q4 prompts, #326/#327/#342/#344 fixes, PR batch; v0.1.31: Unsloth UD-Q4_K_XL (experimental), GGUF-in-place low-RAM mode, Windows GGUF load 2x, server race + tokenizer fixes, AMD intrinsics; v0.1.30: short prompts faster (streaming from 1024 tokens), resident low-RAM variant, multi-GPU session carve, RDNA4; v0.1.29: sampled answers faster (split top-k), #154 correctness fixes; v0.1.28: the expert cache reserves the draft head, a cancelled request no longer fails the next; v0.1.27: RTX 20 (sm_75) in the ready-made engine, the HIP build without CUDA headers; v0.1.26: the draft layer's prompt pass in batches; v0.1.25: faster prompts (grouping off the copy engine, fused hyper-connection kernels), AMD HIP backend, --kv k8v4; v0.1.24: long prompts faster (QSA select on tensor cores); v0.1.23: image requests honor sampling, 8 GB cards start, batched verify window; v0.1.22: faster prompts (tensor-core attention), multi-GPU across images/steering/KV streaming; v0.1.21: multi-GPU layer split (--gpus); v0.1.20: system-prompt checkpoint, PCIe probe, hit rate; v0.1.19: penalties
+MIN_ENGINE = (0, 1, 57)                # TokenRun: ENGINE_VERSION; v0.1.57 (tag v0.2.11): decode +5.5% on llmserver (MTP), DFlash2 drafter (--draft dflash2), class-aware expert cache, the 32K prompt chunk / K-quant prompt kernels / CPU share rule (TokenRun keeps the earlier ones, serve/server.py engine_env); v0.1.46 (tag v0.2.1.x): the sm_86 / sm_60 decode tables, CPU workers by physical cores; v0.1.39: the #577 file-tier regression fixed, the OpenAI Responses API (#451, Codex), a reply stuck on one token ended (#606), the head before the arena (#620), effort_position (#458), --vram-reserve hot resize opt-in (#533), PR batch; v0.1.38: prompts faster (one gather per expert group #372, the first chunk's PLE rows beside layer 0 #374, DeltaNet three heads per thread #413), --kv q4_0 prompts on tensor cores (#452), Q5_0 experts on the GPU (#473), IQ4_XS on AVX-2 (#415), unbuffered expert loading on Windows (#357 #362), --peer-device (#531), a 6 GB card starts (#496), PR batch; v0.1.37: a silent engine is restarted (#481), Windows AMD counts the desktop's VRAM (#380 #377 #497), a steadier PCIe probe (#485), fixes #496 #495 #498 #505 #493; v0.1.36: a cancelled prompt logged as read so far (#471), the draft-head hint (#474), UPDATE.bat (#475), --expert-profile-save (#477); v0.1.35: Windows AMD uses its bundled HIP runtime (#468 #461), the low-RAM resident mode on Windows 32 GB (#467), fixes #460 #459 #446 #447 #457 #448 #444; v0.1.34: AMD on Windows (a ready-made HIP engine), an MCP server for AI assistants (tools/strata_mcp.py), a shorter README; v0.1.33: a portable image encoder again (#411 #412), setup recommends instead of forcing (#406 #403 #364 #384), fixes #352 #365 #369 #371 #375 #393 #408 #414; v0.1.32: split prompts faster (#340), AMD router +12%, Unsloth Q4 in setup, faster Q4 prompts, #326/#327/#342/#344 fixes, PR batch; v0.1.31: Unsloth UD-Q4_K_XL (experimental), GGUF-in-place low-RAM mode, Windows GGUF load 2x, server race + tokenizer fixes, AMD intrinsics; v0.1.30: short prompts faster (streaming from 1024 tokens), resident low-RAM variant, multi-GPU session carve, RDNA4; v0.1.29: sampled answers faster (split top-k), #154 correctness fixes; v0.1.28: the expert cache reserves the draft head, a cancelled request no longer fails the next; v0.1.27: RTX 20 (sm_75) in the ready-made engine, the HIP build without CUDA headers; v0.1.26: the draft layer's prompt pass in batches; v0.1.25: faster prompts (grouping off the copy engine, fused hyper-connection kernels), AMD HIP backend, --kv k8v4; v0.1.24: long prompts faster (QSA select on tensor cores); v0.1.23: image requests honor sampling, 8 GB cards start, batched verify window; v0.1.22: faster prompts (tensor-core attention), multi-GPU across images/steering/KV streaming; v0.1.21: multi-GPU layer split (--gpus); v0.1.20: system-prompt checkpoint, PCIe probe, hit rate; v0.1.19: penalties
 PY_PACKAGES = ["numpy", "jinja2", "regex", "pyyaml", "tqdm", "requests", "cmake", "ninja", "pillow", "psutil"]
 PIP_MIRRORS = ["https://pypi.tuna.tsinghua.edu.cn/simple/", "https://mirrors.cloud.tencent.com/pypi/simple/"]
 REQUIREMENTS = ROOT / "requirements.txt"   # the same packages and their dependencies, pinned (#214)
@@ -2302,7 +2313,7 @@ def prebuilt_bases(url_base) -> list[str]:
     if base != PREBUILT_URL:
         return [base]
     v = ENGINE_VERSION
-    gh = [PREBUILT_TAG_URL.format(version=v), UPSTREAM_PREBUILT_TAG_URL.format(version=v), UPSTREAM_PREBUILT_URL]
+    gh = [PREBUILT_TAG_URL.format(version=v), UPSTREAM_PREBUILT_TAG_URL.format(version=UPSTREAM_ENGINE_VERSION)]
     return [ms_engine_base(v)] + gh if model_source() == "modelscope" else gh[:1] + [ms_engine_base(v)] + gh[1:]
 
 
@@ -2329,6 +2340,11 @@ def ms_engine_ok(base: str, z: Path) -> bool:
     return False
 
 
+def min_engine(toolkit=13) -> tuple:
+    """The oldest ready-made engine this setup keeps: TokenRun's own (CUDA 13), or the official CUDA 12 one."""
+    return CUDA12_MIN_ENGINE if int(toolkit) == 12 else MIN_ENGINE
+
+
 def get_prebuilt(url_base, gpu, vision, updating=False, toolkit=13) -> Path | None:
     """The ready-made engine in engine/ (kept between runs), or None when there is none for this PC.
     updating: called to replace an installed engine, which starts instead when this fails (no compile).
@@ -2348,10 +2364,10 @@ def get_prebuilt(url_base, gpu, vision, updating=False, toolkit=13) -> Path | No
             warn(f"the installed engine is built for {', '.join(str(a) for a in have)}; your GPU is "
                  f"{', '.join(str(x) for x in miss)}: compiling instead")
             return None
-        if ver >= MIN_ENGINE:
+        if ver >= min_engine(toolkit):
             ok("ready-made engine already installed")
             return eng
-        say(f"  Updating the ready-made engine ({meta.get('version')} -> {'.'.join(map(str, MIN_ENGINE))} or newer) ...")
+        say(f"  Updating the ready-made engine ({meta.get('version')} -> {'.'.join(map(str, min_engine(toolkit)))} or newer) ...")
         info.unlink()
     if not url_base:
         return None
@@ -2381,8 +2397,8 @@ def get_prebuilt(url_base, gpu, vision, updating=False, toolkit=13) -> Path | No
     with zipfile.ZipFile(z) as f:
         f.extractall(tmp)
     meta = json.loads((tmp / "BUILD.json").read_text())
-    if tuple(int(x) for x in str(meta.get("version", "0")).split(".")[:3] if x.isdigit()) < MIN_ENGINE:
-        need = ".".join(map(str, MIN_ENGINE))
+    if tuple(int(x) for x in str(meta.get("version", "0")).split(".")[:3] if x.isdigit()) < min_engine(toolkit):
+        need = ".".join(map(str, min_engine(toolkit)))
         if updating:                                   # these files are newer than the published release (#58)
             warn(f"engine {need} is not published yet (the release may still be uploading): run this again "
                  f"in a few minutes to update it")
@@ -2410,10 +2426,10 @@ def get_prebuilt(url_base, gpu, vision, updating=False, toolkit=13) -> Path | No
     drop_archive(z)
     if not (eng / EXE).exists():
         fail("the ready-made engine archive has no " + EXE)
-    if not WIN:
-        for x in (EXE, VEXE):
-            if (eng / x).exists():
-                (eng / x).chmod(0o755)
+    if not WIN:                                        # zip keeps no modes: the programs and libraries (0.1.57:
+        for x in eng.iterdir():                        # strata-split-2-*, libstrata_kq.so, the CUDA libraries)
+            if x.is_file() and x.suffix not in (".json", ".txt", ".zip"):
+                x.chmod(0o755)
     ok(f"ready-made engine {meta.get('version', '')} for {', '.join('sm_' + str(a) for a in archs)} (CUDA "
        f"{meta.get('cuda', '?')})")
     return eng
@@ -2471,7 +2487,7 @@ def update_installed_engine(url_base, toolkit=None) -> None:
         if meta.get("src") == source_hash(ENGINE_SOURCES) and \
                 (vision == "none" or meta.get("vision_src") == source_hash(VISION_SOURCES)):
             return
-    elif ver >= MIN_ENGINE:
+    elif ver >= min_engine(toolkit):
         return
     try:                                               # a running engine cannot be replaced (Windows keeps it locked)
         for x in (EXE, VEXE):
@@ -3470,6 +3486,8 @@ def repair_cuda_libs(cfg_path: Path, cfg: dict) -> dict:
         meta = {}
     if meta.get("source") == "local" or meta.get("lib_dirs") or meta.get("cuda_dirs"):
         return cfg                                     # a compiled engine's toolkit: not pip's to bring back
+    if all((eng / n).is_file() for n in CUDA_BUNDLED):
+        return cfg                                     # 0.1.57: the engine's own libraries (serve/server.py child_env)
     tk = config_toolkit(cfg)
     warn(f"the CUDA libraries this model's engine loads are gone ({dirs[0]}): installing them again")
     pip_cuda_libs(tk, force=True)
